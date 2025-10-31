@@ -1,0 +1,5 @@
+{
+  "name": "Digital Equb Savings Platform",
+  "description": "A web application simulating a traditional Ethiopian rotating savings system (Equb). It features separate interfaces for administrators to manage groups and for members to participate, track contributions, and view their status. Includes an AI-powered advisor for admins.",
+  "requestFramePermissions": []
+}

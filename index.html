@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digital Equb Savings Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class', // Enable class-based dark mode
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Poppins', 'sans-serif'],
+            },
+            colors: {
+              // Brand colors (consistent in both modes)
+              'brand-primary': '#00A99D',
+              'brand-accent': '#FDB813',
+              'brand-danger': '#DA121A',
+              'brand-blue-dark': '#1f456e',
+              
+              // Dark theme colors
+              'brand-dark': '#0A191E',
+              'brand-card': '#14262B',
+              'brand-border': '#2A3C40',
+              'dark-text-primary': '#E0E0E0',
+              'dark-text-secondary': '#A0A0A0',
+
+              // Light theme colors
+              'light-bg': '#F3F4F6',
+              'light-card': '#FFFFFF',
+              'light-border': '#E5E7EB',
+              'light-text-primary': '#111827',
+              'light-text-secondary': '#6B7280',
+            },
+          },
+        },
+      }
+    </script>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.28.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.3.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
