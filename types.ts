@@ -14,6 +14,7 @@ export interface UserProfile {
   role: Role;
   wallet_balance: number;
   updated_at: string;
+  is_active: boolean;
 }
 
 // Corresponds to the 'equb_status' enum in Supabase
@@ -44,6 +45,7 @@ export interface Equb {
   contribution_amount: number;
   cycle: 'daily' | 'weekly' | 'monthly';
   max_members: number;
+  member_count: number;
   status: EqubStatus;
   start_date: string;
   next_due_date: string;

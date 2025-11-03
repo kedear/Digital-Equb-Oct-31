@@ -1,9 +1,10 @@
 import React, { createContext, useState, useEffect, ReactNode, useContext } from 'react';
 import { supabase } from '../services/supabase';
-import { UserProfile, Equb, Membership, Contribution, Winner, Notification } from '../types';
+import { UserProfile, Equb, Membership, Contribution, Winner, Notification, EqubStatus, Role } from '../types';
 
 interface DataContextType {
   currentUser: UserProfile;
+  isEmailConfirmed: boolean;
   profiles: UserProfile[];
   equbs: Equb[];
   memberships: Membership[];
@@ -14,6 +15,7 @@ interface DataContextType {
 
 export const DataContext = createContext<DataContextType>({
   currentUser: {} as UserProfile,
+  isEmailConfirmed: false,
   profiles: [],
   equbs: [],
   memberships: [],
@@ -25,10 +27,11 @@ export const DataContext = createContext<DataContextType>({
 
 interface DataProviderProps {
   user: UserProfile;
+  isEmailConfirmed: boolean;
   children: ReactNode;
 }
 
-export const DataProvider: React.FC<DataProviderProps> = ({ user, children }) => {
+export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirmed, children }) => {
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [equbs, setEqubs] = useState<Equb[]>([]);
@@ -66,62 +69,41 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, children }) =>
   
   // Set up realtime subscriptions
   useEffect(() => {
-     const handleInserts = <T extends { id: string }>(payload: any, setter: React.Dispatch<React.SetStateAction<T[]>>) => {
-        setter(prev => [...prev, payload.new as T]);
-    };
-    const handleUpdates = <T extends { id: string }>(payload: any, setter: React.Dispatch<React.SetStateAction<T[]>>) => {
-        setter(prev => prev.map(item => item.id === payload.new.id ? payload.new as T : item));
-    };
-    const handleDeletes = <T extends { id: string }>(payload: any, setter: React.Dispatch<React.SetStateAction<T[]>>) => {
-        setter(prev => prev.filter(item => item.id !== payload.old.id));
-    };
-    
-    // Generic handler for tables with composite keys like 'memberships'
-    const handleCompositeKeyUpdates = <T,>(payload: any, setter: React.Dispatch<React.SetStateAction<T[]>>, keyFields: (keyof T)[]) => {
-      setter(prev => prev.map(item => {
-        const isMatch = keyFields.every(key => (item as any)[key] === (payload.new as any)[key]);
-        return isMatch ? payload.new as T : item;
-      }));
-    };
-    const handleCompositeKeyDeletes = <T,>(payload: any, setter: React.Dispatch<React.SetStateAction<T[]>>, keyFields: (keyof T)[]) => {
-      setter(prev => prev.filter(item => {
-         const isMatch = keyFields.every(key => (item as any)[key] === (payload.old as any)[key]);
-        return !isMatch;
-      }));
-    };
-
-
     const equbsSub = supabase.channel('equbs-channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'equbs' }, (payload) => handleInserts(payload, setEqubs))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'equbs' }, (payload) => handleUpdates(payload, setEqubs))
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'equbs' }, (payload) => handleDeletes(payload, setEqubs))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'equbs' }, async () => {
+        const { data } = await supabase.from('equbs').select('*');
+        if (data) setEqubs(data);
+      }).subscribe();
       
     const profilesSub = supabase.channel('profiles-channel')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
-          supabase.from('profiles').select('*').then(({ data }) => data && setProfiles(data));
-      })
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, async () => {
+        const { data } = await supabase.from('profiles').select('*');
+        if (data) setProfiles(data);
+      }).subscribe();
       
     const membershipsSub = supabase.channel('memberships-channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'memberships' }, payload => setMemberships(prev => [...prev, payload.new as Membership]))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'memberships' }, payload => handleCompositeKeyUpdates(payload, setMemberships, ['user_id', 'equb_id']))
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'memberships' }, payload => handleCompositeKeyDeletes(payload, setMemberships, ['user_id', 'equb_id']))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'memberships' }, async () => {
+        const { data } = await supabase.from('memberships').select('*');
+        if (data) setMemberships(data);
+      }).subscribe();
       
     const contributionsSub = supabase.channel('contributions-channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'contributions' }, (payload) => handleInserts(payload, setContributions))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'contributions' }, (payload) => handleUpdates(payload, setContributions))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contributions' }, async () => {
+        const { data } = await supabase.from('contributions').select('*');
+        if (data) setContributions(data);
+      }).subscribe();
       
     const winnersSub = supabase.channel('winners-channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'winners' }, (payload) => handleInserts(payload, setWinners))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'winners' }, async () => {
+        const { data } = await supabase.from('winners').select('*');
+        if (data) setWinners(data);
+      }).subscribe();
 
     const notificationsSub = supabase.channel(`notifications-channel-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => handleInserts(payload, setNotifications))
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, (payload) => handleUpdates(payload, setNotifications))
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, async () => {
+        const { data } = await supabase.from('notifications').select('*').eq('user_id', user.id);
+        if (data) setNotifications(data);
+      }).subscribe();
 
     return () => {
       supabase.removeChannel(equbsSub);
@@ -133,6 +115,57 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, children }) =>
     };
   }, [user.id]);
 
+  // Automatically activate equbs when they are full
+  useEffect(() => {
+    const checkAndActivateEqubs = async () => {
+        const equbsToActivate = equbs.filter(equb => {
+            if (equb.status !== EqubStatus.Open) {
+                return false;
+            }
+            const memberCount = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').length;
+            return memberCount > 0 && memberCount === equb.max_members;
+        });
+
+        if (equbsToActivate.length > 0) {
+            const updates = equbsToActivate.map(equb => 
+                supabase
+                    .from('equbs')
+                    .update({ status: EqubStatus.Active })
+                    .eq('id', equb.id)
+            );
+            
+            const results = await Promise.all(updates);
+
+            results.forEach((result, index) => {
+                if (result.error) {
+                    console.error(`Failed to activate equb ${equbsToActivate[index].name}:`, result.error.message || result.error);
+                } else {
+                    const activatedEqub = equbsToActivate[index];
+                    const memberIds = memberships
+                        .filter(m => m.equb_id === activatedEqub.id && m.status === 'approved')
+                        .map(m => m.user_id);
+                    
+                    if (memberIds.length > 0) {
+                        const notifications = memberIds.map(id => ({
+                            user_id: id,
+                            message: `The Equb group "${activatedEqub.name}" is now full and has become Active!`
+                        }));
+                        supabase.from('notifications').insert(notifications).then(({ error }) => {
+                            if (error) {
+                                console.error('Failed to send activation notifications:', error.message || error);
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    };
+
+    if (!loading && user.role === Role.Admin) {
+        checkAndActivateEqubs();
+    }
+  }, [memberships, equbs, loading, user.role]);
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -142,7 +175,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, children }) =>
   }
 
   return (
-    <DataContext.Provider value={{ currentUser: user, profiles, equbs, memberships, contributions, winners, notifications }}>
+    <DataContext.Provider value={{ currentUser: user, isEmailConfirmed, profiles, equbs, memberships, contributions, winners, notifications }}>
       {children}
     </DataContext.Provider>
   );

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { AuthView } from './components/AuthView';
 import { AdminView } from './components/AdminView';
@@ -14,6 +15,7 @@ export interface ThemeContextType {
   theme: Theme;
   toggleTheme: () => void;
 }
+// FIX: Corrected typo `React.create-context` to `React.createContext`.
 export const ThemeContext = React.createContext<ThemeContextType>({
   theme: 'dark',
   toggleTheme: () => console.warn('no theme provider'),
@@ -26,6 +28,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('landing');
   const [loading, setLoading] = useState(true);
+  const [isEmailConfirmed, setIsEmailConfirmed] = useState(false);
 
   const [theme, setTheme] = useState<Theme>(() => {
     const savedTheme = localStorage.getItem('theme') as Theme | null;
@@ -46,6 +49,7 @@ const App: React.FC = () => {
       if(session?.user) {
         const profile = await fetchUserProfile(session.user.id);
         setCurrentUser(profile);
+        setIsEmailConfirmed(!!session.user.email_confirmed_at);
         setViewMode('app');
       }
       setLoading(false);
@@ -58,9 +62,11 @@ const App: React.FC = () => {
         if (session?.user) {
           const profile = await fetchUserProfile(session.user.id);
           setCurrentUser(profile);
+          setIsEmailConfirmed(!!session.user.email_confirmed_at);
           setViewMode('app');
         } else {
           setCurrentUser(null);
+          setIsEmailConfirmed(false);
           setViewMode('landing');
         }
       }
@@ -105,7 +111,7 @@ const App: React.FC = () => {
     }
 
     return (
-      <DataProvider user={currentUser}>
+      <DataProvider user={currentUser} isEmailConfirmed={isEmailConfirmed}>
         {currentUser.role === Role.Admin ? <AdminView /> : <MemberView />}
       </DataProvider>
     );

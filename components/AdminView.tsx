@@ -1,11 +1,11 @@
+
 import React, { useState, useContext, useMemo, useEffect, useRef } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, PieChart, Pie, Cell } from 'recharts';
 import { DataContext } from './DataProvider';
 import { ThemeContext, Theme } from '../App';
-import { DashboardIcon, EqubIcon, UsersIcon, LogoutIcon, SparklesIcon, WalletIcon, PlusIcon, PencilIcon, TrashIcon, XIcon, AlertTriangleIcon, SearchIcon, NotificationIcon, TrophyIcon } from './Icons';
+import { DashboardIcon, EqubIcon, UsersIcon, LogoutIcon, SettingsIcon, WalletIcon, PlusIcon, PencilIcon, TrashIcon, XIcon, AlertTriangleIcon, SearchIcon, NotificationIcon, TrophyIcon, EyeIcon, CheckCircleIcon, BanIcon, DownloadIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { UserProfile, Equb, EqubStatus, Membership, Contribution, EqubType, Notification, Winner } from '../types';
-import { getAdminAdvice } from '../services/geminiService';
 import { NotificationPanel } from './NotificationPanel';
 import { supabase } from '../services/supabase';
 
@@ -16,6 +16,8 @@ const AdminView: React.FC = () => {
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
     const profileMenuRef = useRef<HTMLDivElement>(null);
+    const [toastMessage, setToastMessage] = useState('');
+
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -48,7 +50,7 @@ const AdminView: React.FC = () => {
         equbs: 'Equb Group Management',
         members: 'Member Management',
         transactions: 'Transaction Management',
-        advisor: 'AI Admin Advisor',
+        settings: 'Settings',
     };
     
      const handleLogout = async () => {
@@ -58,19 +60,23 @@ const AdminView: React.FC = () => {
             alert(`Could not log out: ${error.message}`);
         }
     };
+    
+    const showToast = (message: string) => {
+        setToastMessage(message);
+    };
 
     const renderContent = () => {
         switch (activeTab) {
             case 'dashboard':
                 return <AnalyticsDashboard />;
             case 'equbs':
-                return <EqubManagement />;
+                return <EqubManagement showToast={showToast} />;
             case 'members':
-                return <MemberManagement />;
+                return <MemberManagement showToast={showToast} />;
             case 'transactions':
                 return <TransactionManagement />;
-            case 'advisor':
-                 return <GeminiAdvisor />;
+            case 'settings':
+                 return <Settings />;
             default:
                 return <AnalyticsDashboard />;
         }
@@ -88,7 +94,7 @@ const AdminView: React.FC = () => {
                     <NavItem icon={<EqubIcon className="w-5 h-5" />} label="Equb Groups" active={activeTab === 'equbs'} onClick={() => setActiveTab('equbs')} />
                     <NavItem icon={<UsersIcon className="w-5 h-5" />} label="Members" active={activeTab === 'members'} onClick={() => setActiveTab('members')} />
                     <NavItem icon={<WalletIcon className="w-5 h-5" />} label="Transactions" active={activeTab === 'transactions'} onClick={() => setActiveTab('transactions')} />
-                    <NavItem icon={<SparklesIcon className="w-5 h-5" />} label="AI Advisor" active={activeTab === 'advisor'} onClick={() => setActiveTab('advisor')} />
+                    <NavItem icon={<SettingsIcon className="w-5 h-5" />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
                 </nav>
             </aside>
 
@@ -136,6 +142,7 @@ const AdminView: React.FC = () => {
                     {renderContent()}
                 </div>
             </main>
+            <Toast message={toastMessage} show={!!toastMessage} onDismiss={() => setToastMessage('')} />
         </div>
     );
 };
@@ -162,11 +169,17 @@ const AnalyticsDashboard: React.FC = () => {
     const { profiles, equbs, contributions } = useContext(DataContext);
     const { theme } = useContext(ThemeContext);
     
+    const totalContributions = useMemo(() => {
+        return contributions
+            .filter(c => c.status === 'paid')
+            .reduce((sum, c) => sum + c.amount, 0);
+    }, [contributions]);
+
     const stats = {
         totalEqubs: equbs.length,
-        totalMembers: profiles.filter(u => u.role === 'member').length,
+        totalMembers: profiles.filter(p => p.role === 'member').length,
         activeCycles: equbs.filter(e => e.status === 'Active').length,
-        latePayments: contributions.filter(c => c.status === 'late').length,
+        totalContributions: `${totalContributions.toLocaleString()} ETB`,
     };
 
     const equbStatusData = useMemo(() => {
@@ -176,6 +189,19 @@ const AnalyticsDashboard: React.FC = () => {
         }, {} as Record<EqubStatus, number>);
         return Object.entries(counts).map(([name, value]) => ({ name, value }));
     }, [equbs]);
+
+    const contributionByTypeData = useMemo(() => {
+        const paidContributions = contributions.filter(c => c.status === 'paid');
+        const totalPerType = paidContributions.reduce((acc, contribution) => {
+            const equb = equbs.find(e => e.id === contribution.equb_id);
+            if (equb) {
+                acc[equb.equb_type] = (acc[equb.equb_type] || 0) + contribution.amount;
+            }
+            return acc;
+        }, {} as Record<EqubType, number>);
+
+        return Object.entries(totalPerType).map(([name, value]) => ({ name, value }));
+    }, [contributions, equbs]);
     
     const memberGrowthData = [
         { name: 'Jan', members: 4 }, { name: 'Feb', members: 7 }, { name: 'Mar', members: 11 },
@@ -186,6 +212,16 @@ const AnalyticsDashboard: React.FC = () => {
         [EqubStatus.Open]: '#FDB813',
         [EqubStatus.Active]: '#00A99D',
         [EqubStatus.Completed]: '#DA121A',
+    };
+
+    const CONTRIBUTION_PIE_COLORS = {
+        [EqubType.Employee]: '#0088FE',
+        [EqubType.Drivers]: '#00C49F',
+        [EqubType.Merchants]: '#FFBB28',
+        [EqubType.CookingOven]: '#FF8042',
+        [EqubType.TV]: '#AF19FF',
+        [EqubType.Fridge]: '#FF19AF',
+        [EqubType.WashingMachine]: '#19FFFF',
     };
 
     const chartConfig = {
@@ -200,7 +236,7 @@ const AnalyticsDashboard: React.FC = () => {
                 <StatCard title="Total Equbs" value={stats.totalEqubs} />
                 <StatCard title="Total Members" value={stats.totalMembers} />
                 <StatCard title="Active Cycles" value={stats.activeCycles} />
-                <StatCard title="Late Payments" value={stats.latePayments} />
+                <StatCard title="Total Contributions (Paid)" value={stats.totalContributions} />
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                 <div className="lg:col-span-3 bg-light-card dark:bg-brand-card p-6 rounded-lg border border-light-border dark:border-brand-border">
@@ -230,6 +266,22 @@ const AnalyticsDashboard: React.FC = () => {
                     </ResponsiveContainer>
                 </div>
             </div>
+            {contributionByTypeData.length > 0 && (
+                <div className="mt-6 bg-light-card dark:bg-brand-card p-6 rounded-lg border border-light-border dark:border-brand-border">
+                    <h3 className="text-xl font-semibold mb-4">Contributions by Equb Type</h3>
+                     <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                            <Pie data={contributionByTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                                {contributionByTypeData.map((entry) => (
+                                    <Cell key={`cell-${entry.name}`} fill={CONTRIBUTION_PIE_COLORS[entry.name as EqubType]} />
+                                ))}
+                            </Pie>
+                            <Tooltip contentStyle={{ backgroundColor: chartConfig.tooltipBg, border: `1px solid ${chartConfig.tooltipBorder}` }} formatter={(value: number) => `${value.toLocaleString()} ETB`} />
+                            <Legend />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
+            )}
         </div>
     );
 };
@@ -241,12 +293,14 @@ const StatCard: React.FC<{ title: string; value: number | string }> = ({ title, 
     </div>
 );
 
-const EqubManagement: React.FC = () => {
-    const { equbs, memberships } = useContext(DataContext);
+const EqubManagement: React.FC<{ showToast: (message: string) => void }> = ({ showToast }) => {
+    const { equbs, profiles } = useContext(DataContext);
     const [isFormModalOpen, setIsFormModalOpen] = useState(false);
     const [editingEqub, setEditingEqub] = useState<Equb | null>(null);
     const [deletingEqub, setDeletingEqub] = useState<Equb | null>(null);
     const [drawWinnerEqub, setDrawWinnerEqub] = useState<Equb | null>(null);
+    const [viewingEqub, setViewingEqub] = useState<Equb | null>(null);
+
 
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
@@ -266,9 +320,19 @@ const EqubManagement: React.FC = () => {
         setIsFormModalOpen(true);
     };
 
-    const closeFormModal = () => {
+    const closeFormModal = (success: boolean = false) => {
         setIsFormModalOpen(false);
         setEditingEqub(null);
+        if (success) {
+            showToast('Equb saved successfully!');
+        }
+    };
+
+    const closeDrawWinnerModal = (success: boolean = false) => {
+        setDrawWinnerEqub(null);
+        if (success) {
+            showToast('Winner confirmed and members notified!');
+        }
     };
 
     const confirmDelete = async () => {
@@ -281,10 +345,10 @@ const EqubManagement: React.FC = () => {
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('en-US').format(amount);
     };
-
-    const getMemberCount = (equbId: string) => {
-        return memberships.filter(m => m.equb_id === equbId && m.status === 'approved').length;
-    }
+    
+    const getAdminName = (adminId: string) => {
+        return profiles.find(p => p.id === adminId)?.full_name || 'Unknown';
+    };
 
     return (
         <div>
@@ -328,28 +392,41 @@ const EqubManagement: React.FC = () => {
                     <table className="w-full text-left">
                         <thead>
                             <tr className="border-b border-light-border dark:border-brand-border">
+                                <th className="p-4 w-12">#</th>
                                 <th className="p-4">Name</th>
                                 <th className="p-4">Type</th>
                                 <th className="p-4">Members</th>
                                 <th className="p-4">Amount</th>
+                                <th className="p-4">Cycle</th>
+                                <th className="p-4">Start Date</th>
+                                <th className="p-4">Next Due Date</th>
+                                <th className="p-4">Created By</th>
                                 <th className="p-4">Status</th>
                                 <th className="p-4">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredEqubs.map(equb => (
+                            {filteredEqubs.map((equb, index) => (
                                 <tr key={equb.id} className="border-b border-light-border dark:border-brand-border hover:bg-light-bg dark:hover:bg-brand-border">
+                                    <td className="p-4 text-light-text-secondary dark:text-dark-text-secondary">{index + 1}</td>
                                     <td className="p-4 font-semibold">{equb.name}</td>
                                     <td className="p-4">{equb.equb_type}</td>
-                                    <td className="p-4">{getMemberCount(equb.id)} / {equb.max_members}</td>
+                                    <td className="p-4">{equb.member_count} / {equb.max_members}</td>
                                     <td className="p-4">{formatCurrency(equb.contribution_amount)} ETB</td>
+                                    <td className="p-4 capitalize">{equb.cycle}</td>
+                                    <td className="p-4">{equb.start_date}</td>
+                                    <td className="p-4">{equb.next_due_date || 'N/A'}</td>
+                                    <td className="p-4 text-sm">{getAdminName(equb.created_by)}</td>
                                     <td className="p-4"><StatusBadge status={equb.status} /></td>
                                     <td className="p-4 flex space-x-2">
-                                        <button onClick={() => setDrawWinnerEqub(equb)} className="text-green-500 hover:underline p-1" aria-label={`Draw winner for ${equb.name}`} title="Draw Winner" disabled={equb.status !== EqubStatus.Active}>
+                                        <button onClick={() => setViewingEqub(equb)} className="text-sky-500 hover:text-sky-700 p-1" aria-label={`View details for ${equb.name}`} title="View Details">
+                                            <EyeIcon className="w-5 h-5"/>
+                                        </button>
+                                        <button onClick={() => setDrawWinnerEqub(equb)} className="text-green-500 hover:text-green-700 p-1" aria-label={`Draw winner for ${equb.name}`} title="Draw Winner" disabled={equb.status !== EqubStatus.Active}>
                                             <TrophyIcon className={`w-5 h-5 ${equb.status !== EqubStatus.Active ? 'opacity-50' : ''}`}/>
                                         </button>
-                                        <button onClick={() => openFormModal(equb)} className="text-brand-primary hover:underline p-1" aria-label={`Edit ${equb.name}`} title="Edit Equb"><PencilIcon className="w-5 h-5"/></button>
-                                        <button onClick={() => setDeletingEqub(equb)} className="text-brand-danger hover:underline p-1" aria-label={`Delete ${equb.name}`} title="Delete Equb"><TrashIcon className="w-5 h-5"/></button>
+                                        <button onClick={() => openFormModal(equb)} className="text-brand-primary hover:text-brand-accent p-1" aria-label={`Edit ${equb.name}`} title="Edit Equb"><PencilIcon className="w-5 h-5"/></button>
+                                        <button onClick={() => setDeletingEqub(equb)} className="text-brand-danger hover:text-red-700 p-1" aria-label={`Delete ${equb.name}`} title="Delete Equb"><TrashIcon className="w-5 h-5"/></button>
                                     </td>
                                 </tr>
                             ))}
@@ -364,15 +441,20 @@ const EqubManagement: React.FC = () => {
                 onConfirm={confirmDelete}
                 onCancel={() => setDeletingEqub(null)}
             />}
-            {drawWinnerEqub && <DrawWinnerModal equb={drawWinnerEqub} onClose={() => setDrawWinnerEqub(null)} />}
+            {drawWinnerEqub && <DrawWinnerModal equb={drawWinnerEqub} onClose={closeDrawWinnerModal} />}
+            {viewingEqub && <EqubDetailModal equb={viewingEqub} onClose={() => setViewingEqub(null)} />}
         </div>
     );
 };
 
-const MemberManagement: React.FC = () => {
+const MemberManagement: React.FC<{ showToast: (message: string) => void }> = ({ showToast }) => {
     const { profiles, memberships, equbs, currentUser } = useContext(DataContext);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState<Record<string, boolean>>({});
+
+    const [editingMember, setEditingMember] = useState<UserProfile | null>(null);
+    const [togglingStatusMember, setTogglingStatusMember] = useState<UserProfile | null>(null);
+    const [viewingEqubDetails, setViewingEqubDetails] = useState<Equb | null>(null);
 
     const memberUsers = useMemo(() => profiles.filter(p => p.role === 'member'), [profiles]);
 
@@ -404,34 +486,76 @@ const MemberManagement: React.FC = () => {
             const user = getUser(membership.user_id);
     
             const notificationsToInsert = [
-                // Notification for the member
-                {
-                    user_id: membership.user_id,
-                    message: `Your request to join "${equb?.name}" has been ${newStatus}.`,
-                },
-                // Notification for the admin
-                {
-                    user_id: currentUser.id,
-                    message: `You have ${newStatus} ${user?.full_name}'s request for "${equb?.name}".`,
-                }
+                { user_id: membership.user_id, message: `Your request to join "${equb?.name}" has been ${newStatus}.` },
+                { user_id: currentUser.id, message: `You have ${newStatus} ${user?.full_name}'s request for "${equb?.name}".` }
             ];
             
-            const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
-            if (notificationError) {
-                // Log but don't fail the entire operation
-                console.error('Failed to send notifications:', notificationError);
-            }
-    
-            alert(`Successfully ${newStatus} ${user?.full_name}'s request.`);
+            await supabase.from('notifications').insert(notificationsToInsert);
+            showToast(`${user?.full_name}'s request has been ${newStatus}.`);
     
         } catch (error: any) {
             console.error(`Error handling request for ${membership.user_id}:`, error);
-            alert(`Failed to ${newStatus} request: ${error.message}`);
+            showToast(`Failed to ${newStatus} request: ${error.message}`);
         } finally {
             setLoading(prev => ({ ...prev, [key]: false }));
         }
     };
     
+    const confirmToggleStatus = async () => {
+        if (!togglingStatusMember) return;
+        const newStatus = !togglingStatusMember.is_active;
+        
+        const { error } = await supabase
+            .from('profiles')
+            .update({ is_active: newStatus })
+            .eq('id', togglingStatusMember.id);
+            
+        if (error) {
+            showToast(`Error updating status: ${error.message}`);
+        } else {
+            showToast(`${togglingStatusMember.full_name}'s account has been ${newStatus ? 'activated' : 'deactivated'}.`);
+        }
+        setTogglingStatusMember(null);
+    };
+
+    const exportToCsv = () => {
+        if (filteredMembers.length === 0) {
+            showToast('No members to export.', 'error');
+            return;
+        }
+
+        const headers = [
+            'ID', 'Full Name', 'Email', 'Phone', 'Location', 'Role', 'Wallet Balance', 'Is Active', 'Updated At'
+        ];
+        const csvRows = [];
+        csvRows.push(headers.join(',')); // Add header row
+
+        for (const member of filteredMembers) {
+            const values = [
+                `"${member.id}"`, // Wrap UUID in quotes to prevent Excel issues
+                `"${member.full_name.replace(/"/g, '""')}"`, // Escape double quotes
+                `"${(member.email || '').replace(/"/g, '""')}"`,
+                `"${member.phone.replace(/"/g, '""')}"`,
+                `"${member.location.replace(/"/g, '""')}"`,
+                `"${member.role}"`,
+                member.wallet_balance,
+                member.is_active ? 'True' : 'False',
+                member.updated_at,
+            ];
+            csvRows.push(values.join(','));
+        }
+
+        const csvString = csvRows.join('\n');
+        const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `members_export_${new Date().toISOString().split('T')[0]}.csv`);
+        link.click();
+        URL.revokeObjectURL(url);
+        showToast('Members exported successfully!');
+    };
+
     return (
         <div>
             <div className="bg-light-card dark:bg-brand-card p-6 rounded-lg border border-light-border dark:border-brand-border">
@@ -465,42 +589,71 @@ const MemberManagement: React.FC = () => {
 
             <div className="bg-light-card dark:bg-brand-card p-6 rounded-lg border border-light-border dark:border-brand-border mt-6">
                  <h3 className="text-xl font-semibold mb-4">All Members</h3>
-                 <div className="relative mb-4">
-                    <input
-                        type="text"
-                        placeholder="Search by name or email..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2 pl-10"
-                    />
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary dark:text-dark-text-secondary" />
+                 <div className="flex flex-col md:flex-row gap-4 mb-4 items-center justify-between">
+                    <div className="relative flex-grow">
+                        <input
+                            type="text"
+                            placeholder="Search by name or email..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2 pl-10"
+                        />
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-light-text-secondary dark:text-dark-text-secondary" />
+                    </div>
+                    <button 
+                        onClick={exportToCsv} 
+                        className="flex items-center space-x-2 bg-brand-primary text-white font-bold py-2 px-4 rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={filteredMembers.length === 0}
+                    >
+                        <DownloadIcon className="w-5 h-5"/>
+                        <span>Export to CSV</span>
+                    </button>
                 </div>
                  <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead>
                             <tr className="border-b border-light-border dark:border-brand-border">
+                                <th className="p-4 w-12">#</th>
                                 <th className="p-4">Name</th>
                                 <th className="p-4">Email</th>
                                 <th className="p-4">Phone</th>
-                                <th className="p-4">Location</th>
                                 <th className="p-4">Joined Equbs</th>
+                                <th className="p-4">Status</th>
+                                <th className="p-4">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredMembers.map(user => {
+                            {filteredMembers.map((user, index) => {
                                 const joinedEqubs = memberships
                                     .filter(m => m.user_id === user.id && m.status === 'approved')
-                                    .map(m => equbs.find(e => e.id === m.equb_id)?.name)
-                                    .filter(Boolean);
+                                    .map(m => equbs.find(e => e.id === m.equb_id))
+                                    .filter((e): e is Equb => e !== undefined);
 
                                 return (
-                                    <tr key={user.id} className="border-b border-light-border dark:border-brand-border hover:bg-light-bg dark:hover:bg-brand-border">
+                                    <tr key={user.id} className={`border-b border-light-border dark:border-brand-border hover:bg-light-bg dark:hover:bg-brand-border ${!user.is_active ? 'opacity-50' : ''}`}>
+                                        <td className="p-4 text-light-text-secondary dark:text-dark-text-secondary">{index + 1}</td>
                                         <td className="p-4 font-semibold">{user.full_name}</td>
                                         <td className="p-4">{user.email || 'N/A'}</td>
                                         <td className="p-4">{user.phone}</td>
-                                        <td className="p-4">{user.location}</td>
                                         <td className="p-4 text-sm">
-                                            {joinedEqubs.length > 0 ? joinedEqubs.join(', ') : 'None'}
+                                            {joinedEqubs.length > 0 ? (
+                                                <div className="flex flex-col space-y-1">
+                                                {joinedEqubs.map(equb => (
+                                                    <button key={equb.id} onClick={() => setViewingEqubDetails(equb)} className="text-brand-primary hover:underline text-left">
+                                                        {equb.name}
+                                                    </button>
+                                                ))}
+                                                </div>
+                                            ) : 'None'}
+                                        </td>
+                                        <td className="p-4"><MemberStatusBadge isActive={user.is_active} /></td>
+                                        <td className="p-4">
+                                            <div className="flex space-x-1">
+                                                <button onClick={() => setEditingMember(user)} className="text-brand-primary hover:text-brand-accent p-1" aria-label={`Edit ${user.full_name}`} title="Edit Member"><PencilIcon className="w-5 h-5"/></button>
+                                                <button onClick={() => setTogglingStatusMember(user)} className={`${user.is_active ? 'text-brand-danger' : 'text-green-500'} p-1`} aria-label={user.is_active ? 'Deactivate' : 'Activate'} title={user.is_active ? 'Deactivate' : 'Activate'}>
+                                                    {user.is_active ? <BanIcon className="w-5 h-5"/> : <CheckCircleIcon className="w-5 h-5"/>}
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
@@ -509,6 +662,14 @@ const MemberManagement: React.FC = () => {
                     </table>
                 </div>
             </div>
+            {viewingEqubDetails && <EqubDetailModal equb={viewingEqubDetails} onClose={() => setViewingEqubDetails(null)} />}
+            {editingMember && <MemberFormModal user={editingMember} onClose={(success) => { setEditingMember(null); if(success) showToast('Member updated successfully!'); }} />}
+            {togglingStatusMember && <ConfirmationModal 
+                title={`${togglingStatusMember.is_active ? 'Deactivate' : 'Activate'} Member`}
+                message={`Are you sure you want to ${togglingStatusMember.is_active ? 'deactivate' : 'activate'} ${togglingStatusMember.full_name}'s account?`}
+                onConfirm={confirmToggleStatus}
+                onCancel={() => setTogglingStatusMember(null)}
+            />}
         </div>
     );
 };
@@ -624,7 +785,7 @@ const TransactionManagement: React.FC = () => {
 
 interface EqubFormModalProps {
     equb: Equb | null;
-    onClose: () => void;
+    onClose: (success?: boolean) => void;
 }
 const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
     const { currentUser, memberships } = useContext(DataContext);
@@ -656,35 +817,48 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
-        const winnable_amount = formData.contribution_amount * formData.max_members;
+        
+        const dataToSubmit = { ...formData };
+        
+        // If next_due_date is not set, calculate it from start_date and cycle.
+        if (!dataToSubmit.next_due_date) {
+            const startDate = new Date(dataToSubmit.start_date);
+            if (dataToSubmit.cycle === 'daily') {
+                startDate.setDate(startDate.getDate() + 1);
+            } else if (dataToSubmit.cycle === 'weekly') {
+                startDate.setDate(startDate.getDate() + 7);
+            } else if (dataToSubmit.cycle === 'monthly') {
+                startDate.setMonth(startDate.getMonth() + 1);
+            }
+            dataToSubmit.next_due_date = startDate.toISOString().split('T')[0];
+        }
+
+        const winnable_amount = dataToSubmit.contribution_amount * dataToSubmit.max_members;
+        let success = false;
         
         if (equb) { // Editing existing Equb
-            const updatePayload = {
-                ...formData,
-                winnable_amount,
-            };
-            const { error } = await supabase.from('equbs').update(updatePayload).eq('id', equb.id);
-            if (error) console.error("Update error:", error);
-
-            const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
-            if (memberIds.length > 0) {
-              const notifications = memberIds.map(memberId => ({
-                  user_id: memberId,
-                  message: `The details for "${equb.name}" have been updated by the administrator.`,
-              }));
-              await supabase.from('notifications').insert(notifications);
+            const { error } = await supabase.from('equbs').update({ ...dataToSubmit, winnable_amount }).eq('id', equb.id);
+            if (!error) {
+                success = true;
+                const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
+                if (memberIds.length > 0) {
+                  const notifications = memberIds.map(memberId => ({
+                      user_id: memberId,
+                      message: `The details for "${equb.name}" have been updated.`,
+                  }));
+                  await supabase.from('notifications').insert(notifications);
+                }
+            } else {
+                 console.error("Update error:", error);
             }
         } else { // Creating new Equb
-            const { error } = await supabase.from('equbs').insert({
-                ...formData,
-                created_by: currentUser.id,
-                winnable_amount
-            });
-            if (error) console.error("Insert error:", error);
+            const { error } = await supabase.from('equbs').insert({ ...dataToSubmit, created_by: currentUser.id, winnable_amount, member_count: 0 });
+            if (!error) success = true;
+            else console.error("Insert error:", error);
         }
 
         setLoading(false);
-        onClose();
+        onClose(success);
     };
 
     return (
@@ -692,7 +866,7 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
             <div className="bg-light-card dark:bg-brand-card rounded-lg p-6 max-w-lg w-full" role="dialog" aria-modal="true" aria-labelledby="equb-modal-title">
                 <div className="flex justify-between items-center mb-4">
                     <h3 id="equb-modal-title" className="text-xl font-bold text-brand-primary">{equb ? 'Edit' : 'Create'} Equb Group</h3>
-                    <button onClick={onClose} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
+                    <button onClick={() => onClose()} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-4">
                      <div className="grid grid-cols-2 gap-4">
@@ -733,8 +907,18 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
                             </select>
                         </div>
                     </div>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="start_date" className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary mb-1">Start Date</label>
+                            <input id="start_date" type="date" name="start_date" value={formData.start_date} onChange={handleChange} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2" required />
+                        </div>
+                        <div>
+                            <label htmlFor="next_due_date" className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary mb-1">Next Due Date (Optional)</label>
+                            <input id="next_due_date" type="date" name="next_due_date" value={formData.next_due_date} onChange={handleChange} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2" />
+                        </div>
+                    </div>
                     <div className="flex justify-end space-x-4 mt-6">
-                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
+                        <button type="button" onClick={() => onClose()} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
                         <button type="submit" disabled={loading} className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50">Save Changes</button>
                     </div>
                 </form>
@@ -743,48 +927,16 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
     );
 };
 
-const GeminiAdvisor: React.FC = () => {
-    const [prompt, setPrompt] = useState('');
-    const [advice, setAdvice] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-
-    const handleGetAdvice = async () => {
-        if (!prompt) return;
-        setIsLoading(true);
-        setAdvice('');
-        const result = await getAdminAdvice(prompt);
-        setAdvice(result);
-        setIsLoading(false);
-    };
-
+const Settings: React.FC = () => {
     return (
         <div>
             <div className="bg-light-card dark:bg-brand-card p-6 rounded-lg border border-light-border dark:border-brand-border">
-                <p className="text-light-text-secondary dark:text-dark-text-secondary mb-4">Get expert advice on managing your Equb groups. Describe a situation below.</p>
-                <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4 mb-4">
-                    <input
-                        type="text"
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g., How to handle a member who consistently pays late?"
-                        className="flex-1 bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 focus:ring-2 focus:ring-brand-primary focus:outline-none"
-                    />
-                    <button
-                        onClick={handleGetAdvice}
-                        disabled={isLoading}
-                        className="bg-brand-primary text-white font-bold py-3 px-6 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                    >
-                        {isLoading ? (
-                           <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        ) : 'Get Advice'}
-                    </button>
-                </div>
-                {advice && (
-                    <div className="mt-6 p-4 bg-light-bg dark:bg-brand-dark rounded-lg">
-                        <h4 className="font-semibold text-lg mb-2 text-brand-primary">Expert Advice:</h4>
-                        <p className="whitespace-pre-wrap">{advice}</p>
-                    </div>
-                )}
+                <h3 className="text-xl font-semibold mb-4">Application Settings</h3>
+                <p className="text-light-text-secondary dark:text-dark-text-secondary">
+                    This is a placeholder for future settings. You'll be able to manage notification preferences,
+                    user roles, and other system configurations here.
+                </p>
+                {/* Future settings components can go here */}
             </div>
         </div>
     );
@@ -867,52 +1019,79 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ title, message, o
 
 interface DrawWinnerModalProps {
     equb: Equb;
-    onClose: () => void;
+    onClose: (success?: boolean) => void;
 }
 const DrawWinnerModal: React.FC<DrawWinnerModalProps> = ({ equb, onClose }) => {
     const { profiles, winners, memberships } = useContext(DataContext);
-    const [selectedWinnerId, setSelectedWinnerId] = useState<string>('');
-    const [loading, setLoading] = useState(false);
+    const [randomWinner, setRandomWinner] = useState<UserProfile | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     
-    const pastWinnerIds = useMemo(() => 
-        winners.filter(w => w.equb_id === equb.id).map(w => w.user_id), 
-    [winners, equb.id]);
-
-    const memberIds = useMemo(() => 
-        memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id),
-    [memberships, equb.id]);
-        
-    const eligibleMembers = useMemo(() => 
-        profiles.filter(u => memberIds.includes(u.id) && !pastWinnerIds.includes(u.id)),
-    [profiles, memberIds, pastWinnerIds]);
-
     useEffect(() => {
-        if (eligibleMembers.length > 0) {
-            setSelectedWinnerId(eligibleMembers[0].id);
+        const selectRandomWinner = () => {
+            const pastWinnerIds = winners.filter(w => w.equb_id === equb.id).map(w => w.user_id);
+            const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
+            const eligibleMembers = profiles.filter(u => memberIds.includes(u.id) && !pastWinnerIds.includes(u.id));
+
+            if (eligibleMembers.length > 0) {
+                const randomIndex = Math.floor(Math.random() * eligibleMembers.length);
+                setRandomWinner(eligibleMembers[randomIndex]);
+            } else {
+                setErrorMessage("All members have already won a round in this Equb.");
+            }
+            setLoading(false);
+        };
+        selectRandomWinner();
+    }, [equb, winners, memberships, profiles]);
+
+    const calculateNextDueDate = (currentDueDate: string, cycle: 'daily' | 'weekly' | 'monthly'): string => {
+        const date = new Date(currentDueDate);
+        if (cycle === 'daily') {
+            date.setDate(date.getDate() + 1);
+        } else if (cycle === 'weekly') {
+            date.setDate(date.getDate() + 7);
+        } else if (cycle === 'monthly') {
+            date.setMonth(date.getMonth() + 1);
         }
-    }, [eligibleMembers]);
+        return date.toISOString().split('T')[0];
+    };
     
-    const handleDrawWinner = async () => {
-        if (!selectedWinnerId) return;
+    const handleConfirmWinner = async () => {
+        if (!randomWinner) return;
         setLoading(true);
 
-        const newWinner: Omit<Winner, 'id'> = {
+        const pastWinnersCount = winners.filter(w => w.equb_id === equb.id).length;
+        const newWinnerData: Omit<Winner, 'id'> = {
             equb_id: equb.id,
-            user_id: selectedWinnerId,
+            user_id: randomWinner.id,
             win_date: new Date().toISOString().split('T')[0],
-            round: pastWinnerIds.length + 1,
+            round: pastWinnersCount + 1,
         };
-        await supabase.from('winners').insert(newWinner);
+
+        const { error: winnerInsertError } = await supabase.from('winners').insert(newWinnerData);
+        if (winnerInsertError) {
+            setErrorMessage(`Failed to record winner: ${winnerInsertError.message}`);
+            setLoading(false);
+            return;
+        }
+
+        const isLastWinner = newWinnerData.round === equb.max_members;
+        const equbUpdateData: Partial<Equb> = {
+            next_due_date: calculateNextDueDate(equb.next_due_date, equb.cycle),
+            status: isLastWinner ? EqubStatus.Completed : EqubStatus.Active,
+        };
+
+        await supabase.from('equbs').update(equbUpdateData).eq('id', equb.id);
         
-        const winnerUser = profiles.find(u => u.id === selectedWinnerId);
+        const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
         const notifications = memberIds.map(memberId => ({
             user_id: memberId,
-            message: `${winnerUser?.full_name} has won round ${newWinner.round} of "${equb.name}"!`,
+            message: `${randomWinner.full_name} has won round ${newWinnerData.round} of "${equb.name}"!`,
         }));
         await supabase.from('notifications').insert(notifications);
         
         setLoading(false);
-        onClose();
+        onClose(true);
     };
 
     return (
@@ -920,33 +1099,215 @@ const DrawWinnerModal: React.FC<DrawWinnerModalProps> = ({ equb, onClose }) => {
             <div className="bg-light-card dark:bg-brand-card rounded-lg p-6 max-w-md w-full" role="dialog" aria-modal="true">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-bold text-brand-primary">Draw Winner for "{equb.name}"</h3>
-                    <button onClick={onClose} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
+                    <button onClick={() => onClose(false)} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
                 </div>
-                {eligibleMembers.length > 0 ? (
-                    <>
-                        <label htmlFor="winner-select" className="block text-sm font-medium mb-2">Select a winner from eligible members:</label>
-                        <select
-                            id="winner-select"
-                            value={selectedWinnerId}
-                            onChange={e => setSelectedWinnerId(e.target.value)}
-                            className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2 mb-6"
-                        >
-                            {eligibleMembers.map(member => (
-                                <option key={member.id} value={member.id}>{member.full_name}</option>
-                            ))}
-                        </select>
-                        <div className="flex justify-end space-x-4">
-                            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
-                            <button type="button" onClick={handleDrawWinner} disabled={loading} className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50">Confirm Winner</button>
+                <div className="min-h-[120px] flex items-center justify-center">
+                    {loading ? (
+                        <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
+                    ) : errorMessage ? (
+                        <p className="text-center py-4 text-brand-danger">{errorMessage}</p>
+                    ) : randomWinner ? (
+                        <div className="text-center">
+                            <p className="mb-2 text-light-text-secondary dark:text-dark-text-secondary">The system has randomly selected:</p>
+                            <p className="text-2xl font-bold text-brand-primary">{randomWinner.full_name}</p>
+                            <p className="text-sm mt-4">Confirm to finalize the draw and notify all members.</p>
                         </div>
-                    </>
-                ) : (
-                    <p className="text-center py-4 text-light-text-secondary dark:text-dark-text-secondary">All members have already won a round in this Equb.</p>
-                )}
+                    ) : null}
+                </div>
+
+                <div className="flex justify-end space-x-4 mt-4">
+                    <button type="button" onClick={() => onClose(false)} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
+                    <button 
+                        type="button" 
+                        onClick={handleConfirmWinner} 
+                        disabled={loading || !!errorMessage || !randomWinner} 
+                        className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50"
+                    >
+                        {loading ? 'Confirming...' : 'Confirm Winner'}
+                    </button>
+                </div>
             </div>
         </div>
     );
 };
 
+const EqubDetailModal: React.FC<{ equb: Equb; onClose: () => void }> = ({ equb, onClose }) => {
+    const { profiles, memberships } = useContext(DataContext);
+
+    const equbMembers = useMemo(() => {
+        const memberLinks = memberships
+            .filter(m => m.equb_id === equb.id && m.status === 'approved');
+        
+        return memberLinks.map(link => {
+            const profile = profiles.find(p => p.id === link.user_id);
+            return { ...profile, join_date: link.join_date };
+        }).filter(Boolean); // Filter out any undefined profiles
+    }, [equb.id, memberships, profiles]);
+
+    const creator = useMemo(() => profiles.find(p => p.id === equb.created_by), [profiles, equb.created_by]);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
+    const DetailItem: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+        <div>
+            <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary">{label}</p>
+            <p className="font-semibold">{value}</p>
+        </div>
+    );
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50" onClick={onClose}>
+            <div className="bg-light-card dark:bg-brand-card rounded-lg p-6 max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="equb-detail-title">
+                <div className="flex justify-between items-center mb-4 flex-shrink-0">
+                    <h3 id="equb-detail-title" className="text-2xl font-bold text-brand-primary">{equb.name}</h3>
+                    <button onClick={onClose} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
+                </div>
+                
+                <div className="flex-grow overflow-y-auto pr-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        {/* Left Column: Details */}
+                        <div className="bg-light-bg dark:bg-brand-dark p-4 rounded-lg">
+                            <h4 className="font-bold text-lg mb-4">Group Details</h4>
+                            <div className="grid grid-cols-2 gap-4">
+                                <DetailItem label="Status" value={<StatusBadge status={equb.status}/>} />
+                                <DetailItem label="Type" value={equb.equb_type} />
+                                <DetailItem label="Contribution" value={`${equb.contribution_amount.toLocaleString()} ETB`} />
+                                <DetailItem label="Cycle" value={<span className="capitalize">{equb.cycle}</span>} />
+                                <DetailItem label="Start Date" value={equb.start_date} />
+                                <DetailItem label="Next Due Date" value={equb.next_due_date || 'N/A'} />
+                                <DetailItem label="Created By" value={creator?.full_name || 'Unknown'} />
+                                <DetailItem label="Created At" value={new Date(equb.created_at).toLocaleDateString()} />
+                                <DetailItem label="Winnable Amount" value={<span className="font-bold text-brand-primary">{equb.winnable_amount.toLocaleString()} ETB</span>} />
+                            </div>
+                        </div>
+
+                        {/* Right Column: Members */}
+                        <div className="bg-light-bg dark:bg-brand-dark p-4 rounded-lg flex flex-col">
+                            <h4 className="font-bold text-lg mb-4">Members ({equbMembers.length} / {equb.max_members})</h4>
+                            <div className="flex-grow overflow-y-auto">
+                                {equbMembers.length > 0 ? (
+                                    <ul className="space-y-3">
+                                        {equbMembers.map(member => (
+                                            <li key={member.id} className="flex items-center space-x-3">
+                                                <div className="w-9 h-9 rounded-full bg-brand-primary flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+                                                    {member.full_name.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <p className="font-semibold text-sm">{member.full_name}</p>
+                                                    <p className="text-xs text-light-text-secondary dark:text-dark-text-secondary">{member.email} &bull; Joined: {new Date(member.join_date).toLocaleDateString()}</p>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary text-center py-8">No members have joined yet.</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Bottom Section: Terms */}
+                    <div>
+                        <h4 className="font-bold text-lg mb-2">Terms & Conditions</h4>
+                        <div className="text-xs text-light-text-secondary dark:text-dark-text-secondary space-y-1 p-4 bg-light-bg dark:bg-brand-dark rounded-lg">
+                            <p>&bull; By joining this Equb, you agree to make timely contributions based on the specified cycle.</p>
+                            <p>&bull; Failure to contribute on time may result in penalties as determined by the administrator.</p>
+                            <p>&bull; The winning order is determined by the administrator and is final. A member cannot win twice until all other members have had their turn.</p>
+                            <p>&bull; Withdrawal from an active Equb cycle may not be possible or may incur penalties. Please communicate with the administrator for any issues.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const MemberStatusBadge: React.FC<{ isActive: boolean }> = ({ isActive }) => {
+    const colors = isActive
+        ? 'bg-brand-primary/20 text-brand-primary'
+        : 'bg-gray-500/20 text-gray-500 dark:text-gray-400';
+    return <span className={`px-2 py-1 text-xs font-semibold rounded-full ${colors}`}>{isActive ? 'Active' : 'Inactive'}</span>
+};
+
+interface MemberFormModalProps {
+    user: UserProfile;
+    onClose: (success?: boolean) => void;
+}
+const MemberFormModal: React.FC<MemberFormModalProps> = ({ user, onClose }) => {
+    const [loading, setLoading] = useState(false);
+    const [formData, setFormData] = useState({
+        full_name: user.full_name,
+        phone: user.phone,
+        location: user.location,
+    });
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setFormData(prev => ({...prev, [e.target.name]: e.target.value}));
+    };
+    
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        const { error } = await supabase.from('profiles').update(formData).eq('id', user.id);
+        setLoading(false);
+        if (error) {
+            console.error('Error updating profile:', error);
+            onClose(false);
+        } else {
+            onClose(true);
+        }
+    };
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+            <div className="bg-light-card dark:bg-brand-card rounded-lg p-6 max-w-md w-full" role="dialog" aria-modal="true">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-brand-primary">Edit Member: {user.full_name}</h3>
+                    <button onClick={() => onClose()} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
+                </div>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label htmlFor="full_name" className="block text-sm font-medium">Full Name</label>
+                        <input id="full_name" name="full_name" type="text" value={formData.full_name} onChange={handleChange} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2 mt-1" required/>
+                    </div>
+                     <div>
+                        <label htmlFor="phone" className="block text-sm font-medium">Phone</label>
+                        <input id="phone" name="phone" type="text" value={formData.phone} onChange={handleChange} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2 mt-1" required/>
+                    </div>
+                     <div>
+                        <label htmlFor="location" className="block text-sm font-medium">Location</label>
+                        <input id="location" name="location" type="text" value={formData.location} onChange={handleChange} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2 mt-1" required/>
+                    </div>
+                     <div className="flex justify-end space-x-4 mt-6">
+                        <button type="button" onClick={() => onClose()} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
+                        <button type="submit" disabled={loading} className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const Toast: React.FC<{ message: string; show: boolean; onDismiss: () => void }> = ({ message, show, onDismiss }) => {
+    useEffect(() => {
+        if (show) {
+            const timer = setTimeout(() => onDismiss(), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [show, onDismiss]);
+
+    return (
+        <div className={`fixed bottom-5 right-5 z-50 transition-all duration-300 transform ${show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'} bg-green-600 text-white py-3 px-5 rounded-lg shadow-lg flex items-center space-x-2`}>
+            <CheckCircleIcon className="w-5 h-5" />
+            <span>{message}</span>
+        </div>
+    );
+};
 
 export { AdminView };

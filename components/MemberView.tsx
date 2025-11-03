@@ -1,5 +1,5 @@
 import React, { useState, useContext, useMemo, useEffect } from 'react';
-import { HomeIcon, EqubIcon, ProfileIcon, NotificationIcon, WalletIcon, LogoutIcon, ChevronDownIcon, XIcon, SearchIcon, CheckCircleIcon } from './Icons';
+import { HomeIcon, EqubIcon, ProfileIcon, NotificationIcon, WalletIcon, LogoutIcon, ChevronDownIcon, XIcon, SearchIcon, CheckCircleIcon, BellOffIcon } from './Icons';
 import { DataContext } from './DataProvider';
 import { ThemeContext } from '../App';
 import { Equb, EqubStatus, UserProfile, Contribution, EqubType, Notification, Winner } from '../types';
@@ -7,9 +7,144 @@ import { ThemeSwitcher } from './ThemeSwitcher';
 import { NotificationPanel } from './NotificationPanel';
 import { supabase } from '../services/supabase';
 
+const EmailConfirmationBanner: React.FC = () => {
+    const { currentUser } = useContext(DataContext);
+    const [loading, setLoading] = useState(false);
+    const [resent, setResent] = useState(false);
+
+    const handleResend = async () => {
+        if (!currentUser?.email) return;
+        setLoading(true);
+        setResent(false);
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email: currentUser.email,
+        });
+        setLoading(false);
+        if (!error) {
+            setResent(true);
+        } else {
+            console.error("Error resending confirmation email:", error);
+            alert("Failed to resend confirmation email. Please try again later.");
+        }
+    };
+
+    return (
+        <div className="bg-yellow-100 dark:bg-yellow-900/50 border-b-2 border-yellow-400 dark:border-yellow-600 p-4 text-center">
+            <p className="text-sm text-yellow-800 dark:text-yellow-200 font-semibold mb-2">Please confirm your email address.</p>
+            <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-3">
+                We've sent a confirmation link to <strong>{currentUser?.email}</strong>. Check your inbox (and spam folder!) to activate your account.
+            </p>
+            {resent ? (
+                <p className="text-xs text-green-700 dark:text-green-300 font-bold">A new confirmation email has been sent!</p>
+            ) : (
+                <button 
+                    onClick={handleResend} 
+                    disabled={loading}
+                    className="text-xs font-bold text-yellow-800 dark:text-yellow-100 hover:underline disabled:opacity-50"
+                >
+                    {loading ? 'Sending...' : 'Resend confirmation link'}
+                </button>
+            )}
+        </div>
+    );
+}
+
+const Toast: React.FC<{ message: string; show: boolean; onDismiss: () => void; type?: 'success' | 'error' }> = ({ message, show, onDismiss, type = 'success' }) => {
+    useEffect(() => {
+        if (show) {
+            const timer = setTimeout(() => onDismiss(), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [show, onDismiss]);
+
+    const colors = {
+        success: 'bg-green-600',
+        error: 'bg-red-600',
+    };
+
+    return (
+        <div className={`fixed bottom-20 right-5 z-50 transition-all duration-300 transform ${show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'} ${colors[type]} text-white py-3 px-5 rounded-lg shadow-lg flex items-center space-x-2`}>
+            {type === 'success' ? <CheckCircleIcon className="w-5 h-5" /> : <XIcon className="w-5 h-5" />}
+            <span>{message}</span>
+        </div>
+    );
+};
+
 const MemberView: React.FC = () => {
     const [activeTab, setActiveTab] = useState('home');
     const [selectedEqub, setSelectedEqub] = useState<Equb | null>(null);
+    const { isEmailConfirmed } = useContext(DataContext);
+
+    const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+        setToast({ message, type });
+    };
+
+    const [notificationEqubIds, setNotificationEqubIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        const storedIds = localStorage.getItem('equb-notifications');
+        if (storedIds) {
+            try {
+                const parsedIds = JSON.parse(storedIds);
+                if (Array.isArray(parsedIds)) {
+                    setNotificationEqubIds(new Set(parsedIds));
+                }
+            } catch (e) {
+                console.error("Failed to parse notification preferences from localStorage", e);
+            }
+        }
+    }, []);
+
+    const updateNotificationPreference = (equbId: string, enable: boolean) => {
+        setNotificationEqubIds(prev => {
+            const newSet = new Set(prev);
+            if (enable) {
+                newSet.add(equbId);
+            } else {
+                newSet.delete(equbId);
+            }
+            localStorage.setItem('equb-notifications', JSON.stringify(Array.from(newSet)));
+            return newSet;
+        });
+    };
+    
+    const handleToggleNotification = async (equb: Equb) => {
+        const isEnabled = notificationEqubIds.has(equb.id);
+
+        if (!("Notification" in window)) {
+            showToast("This browser does not support desktop notifications.", 'error');
+            return;
+        }
+
+        if (Notification.permission === 'denied') {
+            showToast("Notification permission is denied. Please enable it in browser settings.", 'error');
+            return;
+        }
+
+        if (Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                showToast("Notification permission was not granted.", 'error');
+                return;
+            }
+        }
+        
+        // At this point, permission is granted.
+        if (isEnabled) {
+            updateNotificationPreference(equb.id, false);
+            showToast(`Reminders disabled for "${equb.name}".`);
+        } else {
+            updateNotificationPreference(equb.id, true);
+            showToast(`Reminders enabled for "${equb.name}"!`);
+            // Show a test notification
+            new Notification('Reminders Enabled!', {
+                body: `You will now receive reminders for contributions to "${equb.name}". Next due: ${equb.next_due_date || 'TBD'}.`,
+                icon: '/vite.svg' 
+            });
+        }
+    };
 
     const handleTabChange = (tab: string) => {
         setSelectedEqub(null); // Reset detail view when changing tabs
@@ -24,7 +159,11 @@ const MemberView: React.FC = () => {
             case 'home':
                 return <MemberHome onEqubSelect={setSelectedEqub}/>;
             case 'my-equbs':
-                return <MyEqubsList onEqubSelect={setSelectedEqub}/>;
+                return <MyEqubsList 
+                            onEqubSelect={setSelectedEqub}
+                            notificationEqubIds={notificationEqubIds}
+                            onToggleNotification={handleToggleNotification}
+                        />;
             case 'profile':
                 return <Profile />;
             default:
@@ -33,12 +172,14 @@ const MemberView: React.FC = () => {
     };
     
     return (
-        <div className="max-w-md mx-auto h-screen flex flex-col bg-light-card dark:bg-brand-card shadow-lg">
+        <div className="max-w-md mx-auto h-screen flex flex-col bg-light-card dark:bg-brand-dark shadow-lg">
             <MemberHeader />
-            <main className="flex-1 overflow-y-auto p-4 pb-20 bg-light-bg dark:bg-brand-card">
+            {!isEmailConfirmed && <EmailConfirmationBanner />}
+            <main className="flex-1 overflow-y-auto p-4 pb-20 bg-light-bg dark:bg-brand-dark">
                 {renderContent()}
             </main>
             <BottomNav activeTab={activeTab} setActiveTab={handleTabChange} />
+            {toast && <Toast message={toast.message} show={!!toast} onDismiss={() => setToast(null)} type={toast.type} />}
         </div>
     );
 };
@@ -90,7 +231,16 @@ const MemberHeader: React.FC = () => {
     );
 };
 
-const EqubList: React.FC<{ title: string; equbs: Equb[]; onEqubSelect: (equb: Equb) => void; }> = ({ title, equbs, onEqubSelect }) => {
+interface EqubListProps {
+    title: string;
+    equbs: Equb[];
+    onEqubSelect: (equb: Equb) => void;
+    isMyEqubsList?: boolean;
+    notificationEqubIds?: Set<string>;
+    onToggleNotification?: (equb: Equb) => void;
+}
+
+const EqubList: React.FC<EqubListProps> = ({ title, equbs, onEqubSelect, isMyEqubsList = false, notificationEqubIds, onToggleNotification }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [typeFilter, setTypeFilter] = useState('All');
 
@@ -126,7 +276,14 @@ const EqubList: React.FC<{ title: string; equbs: Equb[]; onEqubSelect: (equb: Eq
             </div>
             <div className="space-y-4">
                 {filteredEqubs.length > 0 ? filteredEqubs.map(equb => (
-                    <EqubCard key={equb.id} equb={equb} onSelect={onEqubSelect} />
+                    <EqubCard 
+                        key={equb.id} 
+                        equb={equb} 
+                        onSelect={onEqubSelect} 
+                        isMyEqub={isMyEqubsList}
+                        notificationEnabled={notificationEqubIds?.has(equb.id)}
+                        onToggleNotification={onToggleNotification}
+                    />
                 )) : <p className="text-light-text-secondary dark:text-dark-text-secondary text-center mt-8">No Equb groups found.</p>}
             </div>
         </div>
@@ -156,7 +313,11 @@ const MemberHome: React.FC<{ onEqubSelect: (equb: Equb) => void; }> = ({ onEqubS
     );
 };
 
-const MyEqubsList: React.FC<{ onEqubSelect: (equb: Equb) => void; }> = ({ onEqubSelect }) => {
+const MyEqubsList: React.FC<{ 
+    onEqubSelect: (equb: Equb) => void;
+    notificationEqubIds: Set<string>;
+    onToggleNotification: (equb: Equb) => void;
+}> = ({ onEqubSelect, notificationEqubIds, onToggleNotification }) => {
      const { currentUser, equbs, memberships } = useContext(DataContext);
      const myEqubIds = useMemo(() => 
         memberships
@@ -165,7 +326,14 @@ const MyEqubsList: React.FC<{ onEqubSelect: (equb: Equb) => void; }> = ({ onEqub
     [memberships, currentUser]);
      const myEqubs = equbs.filter(e => myEqubIds.includes(e.id));
 
-     return <EqubList title="My Equb Groups" equbs={myEqubs} onEqubSelect={onEqubSelect} />;
+     return <EqubList 
+                title="My Equb Groups" 
+                equbs={myEqubs} 
+                onEqubSelect={onEqubSelect} 
+                isMyEqubsList={true}
+                notificationEqubIds={notificationEqubIds}
+                onToggleNotification={onToggleNotification}
+            />;
 };
 
 
@@ -192,12 +360,12 @@ const Profile: React.FC = () => {
 interface EqubCardProps {
     equb: Equb;
     onSelect: (equb: Equb) => void;
+    isMyEqub?: boolean;
+    notificationEnabled?: boolean;
+    onToggleNotification?: (equb: Equb) => void;
 }
 
-const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect }) => {
-    const { memberships } = useContext(DataContext);
-    const memberCount = useMemo(() => memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').length, [memberships, equb.id]);
-
+const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect, isMyEqub, notificationEnabled, onToggleNotification }) => {
     const statusColors = {
         [EqubStatus.Open]: 'border-yellow-500',
         [EqubStatus.Active]: 'border-brand-primary',
@@ -205,12 +373,12 @@ const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect }) => {
     };
     
     return (
-        <div onClick={() => onSelect(equb)} className={`bg-light-card dark:bg-brand-dark p-4 rounded-lg border-l-4 ${statusColors[equb.status]} cursor-pointer hover:bg-light-border dark:hover:bg-brand-border transition-colors`}>
+        <div onClick={() => onSelect(equb)} className={`bg-light-card dark:bg-brand-card p-4 rounded-lg border-l-4 ${statusColors[equb.status]} cursor-pointer hover:bg-light-border dark:hover:bg-brand-border transition-colors`}>
             <div className="flex justify-between items-start">
                 <div>
                     <h3 className="font-bold text-lg">{equb.name}</h3>
                     <p className="text-xs text-brand-primary font-medium">{equb.equb_type}</p>
-                    <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary mt-1">{memberCount}/{equb.max_members} members</p>
+                    <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary mt-1">/{equb.max_members} members</p>
                 </div>
                 <div className="text-right">
                     <p className="font-bold text-brand-primary text-lg">{equb.contribution_amount} <span className="text-sm font-normal">ETB</span></p>
@@ -218,11 +386,22 @@ const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect }) => {
                 </div>
             </div>
             <div className="flex justify-between items-center mt-4">
-                <div className={`px-2 py-1 text-xs font-semibold rounded-full ${ {
-                    [EqubStatus.Open]: 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400',
-                    [EqubStatus.Active]: 'bg-brand-primary/20 text-brand-primary',
-                    [EqubStatus.Completed]: 'bg-brand-danger/20 text-brand-danger'
-                }[equb.status]}`}>{equb.status}</div>
+                <div className="flex items-center space-x-2">
+                    <div className={`px-2 py-1 text-xs font-semibold rounded-full ${ {
+                        [EqubStatus.Open]: 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400',
+                        [EqubStatus.Active]: 'bg-brand-primary/20 text-brand-primary',
+                        [EqubStatus.Completed]: 'bg-brand-danger/20 text-brand-danger'
+                    }[equb.status]}`}>{equb.status}</div>
+                    {isMyEqub && onToggleNotification && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onToggleNotification(equb); }}
+                            className="p-1 rounded-full text-light-text-secondary dark:text-dark-text-secondary hover:bg-light-border dark:hover:bg-brand-border"
+                            title={notificationEnabled ? 'Disable Reminders' : 'Enable Reminders'}
+                        >
+                            {notificationEnabled ? <NotificationIcon className="w-5 h-5 text-brand-primary" /> : <BellOffIcon className="w-5 h-5" />}
+                        </button>
+                    )}
+                </div>
                 <button className="text-brand-primary text-sm font-semibold">View Details &rarr;</button>
             </div>
         </div>
@@ -289,8 +468,10 @@ const EqubDetailPage: React.FC<{equb: Equb, onBack: () => void}> = ({ equb, onBa
     };
 
     return (
-        <div>
-            <button onClick={onBack} className="text-brand-primary mb-4"> &larr; Back to list</button>
+        <div className="relative">
+             <button onClick={onBack} className="absolute top-0 right-0 p-1 text-light-text-secondary dark:text-dark-text-secondary hover:opacity-75" aria-label="Back to list">
+                <XIcon className="w-6 h-6" />
+            </button>
             <h2 className="text-2xl font-bold mb-1">{equb.name}</h2>
             <p className="text-sm font-semibold text-brand-primary mb-1">{equb.equb_type}</p>
             <p className="text-light-text-secondary dark:text-dark-text-secondary mb-4">Contribution: {equb.contribution_amount} ETB / {equb.cycle}</p>
@@ -322,7 +503,10 @@ const EqubDetailPage: React.FC<{equb: Equb, onBack: () => void}> = ({ equb, onBa
                             Your request to join "{equb.name}" has been sent for admin review. You'll be notified upon approval.
                         </p>
                         <button 
-                            onClick={() => setShowSuccessMessage(false)}
+                            onClick={() => {
+                                setShowSuccessMessage(false);
+                                onBack();
+                            }}
                             className="px-6 py-2 rounded-lg bg-brand-primary text-white font-bold"
                         >
                             OK
