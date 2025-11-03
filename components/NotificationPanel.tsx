@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Notification } from '../types';
 import { NotificationIcon, XIcon } from './Icons';

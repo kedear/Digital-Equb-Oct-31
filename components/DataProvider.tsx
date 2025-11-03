@@ -1,4 +1,5 @@
-import React, { createContext, useState, useEffect, ReactNode, useContext } from 'react';
+
+import React, { createContext, useState, useEffect, ReactNode, useContext, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { UserProfile, Equb, Membership, Contribution, Winner, Notification, EqubStatus, Role } from '../types';
 
@@ -11,6 +12,10 @@ interface DataContextType {
   contributions: Contribution[];
   winners: Winner[];
   notifications: Notification[];
+  refreshEqubs: () => Promise<void>;
+  refreshMemberships: () => Promise<void>; // Added refreshMemberships to the context
+  refreshProfiles: () => Promise<void>; // Added refreshProfiles to the context
+  refreshNotifications: () => Promise<void>; // Added refreshNotifications to the context
 }
 
 export const DataContext = createContext<DataContextType>({
@@ -22,6 +27,10 @@ export const DataContext = createContext<DataContextType>({
   contributions: [],
   winners: [],
   notifications: [],
+  refreshEqubs: async () => {},
+  refreshMemberships: async () => {}, // Default no-op function
+  refreshProfiles: async () => {}, // Default no-op function
+  refreshNotifications: async () => {}, // Default no-op function
 });
 
 
@@ -40,6 +49,46 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
   const [winners, setWinners] = useState<Winner[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   
+  // Function to refresh Equbs data
+  const refreshEqubs = useCallback(async () => {
+    const { data, error } = await supabase.from('equbs').select('*');
+    if (error) {
+      console.error("Error refreshing equbs:", error);
+    } else if (data) {
+      setEqubs(data);
+    }
+  }, []);
+
+  // Function to refresh Memberships data
+  const refreshMemberships = useCallback(async () => {
+    const { data, error } = await supabase.from('memberships').select('*');
+    if (error) {
+      console.error("Error refreshing memberships:", error);
+    } else if (data) {
+      setMemberships(data);
+    }
+  }, []);
+
+  // Function to refresh Profiles data
+  const refreshProfiles = useCallback(async () => {
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (error) {
+      console.error("Error refreshing profiles:", error);
+    } else if (data) {
+      setProfiles(data);
+    }
+  }, []);
+
+  // Function to refresh Notifications data for the current user
+  const refreshNotifications = useCallback(async () => {
+    const { data, error } = await supabase.from('notifications').select('*').eq('user_id', user.id);
+    if (error) {
+      console.error("Error refreshing notifications:", error);
+    } else if (data) {
+      setNotifications(data);
+    }
+  }, [user.id]); // Dependency on user.id to ensure it fetches for the current user
+
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -71,20 +120,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
   useEffect(() => {
     const equbsSub = supabase.channel('equbs-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'equbs' }, async () => {
-        const { data } = await supabase.from('equbs').select('*');
-        if (data) setEqubs(data);
+        refreshEqubs(); 
       }).subscribe();
       
     const profilesSub = supabase.channel('profiles-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, async () => {
-        const { data } = await supabase.from('profiles').select('*');
-        if (data) setProfiles(data);
+        refreshProfiles();
       }).subscribe();
       
     const membershipsSub = supabase.channel('memberships-channel')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'memberships' }, async () => {
-        const { data } = await supabase.from('memberships').select('*');
-        if (data) setMemberships(data);
+        refreshMemberships();
       }).subscribe();
       
     const contributionsSub = supabase.channel('contributions-channel')
@@ -101,8 +147,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
 
     const notificationsSub = supabase.channel(`notifications-channel-${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, async () => {
-        const { data } = await supabase.from('notifications').select('*').eq('user_id', user.id);
-        if (data) setNotifications(data);
+        refreshNotifications(); // Use the new refresh function
       }).subscribe();
 
     return () => {
@@ -113,7 +158,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
       supabase.removeChannel(winnersSub);
       supabase.removeChannel(notificationsSub);
     };
-  }, [user.id]);
+  }, [user.id, refreshEqubs, refreshMemberships, refreshProfiles, refreshNotifications]); // Added refreshNotifications to dependency array
 
   // Automatically activate equbs when they are full
   useEffect(() => {
@@ -136,7 +181,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
             
             const results = await Promise.all(updates);
 
-            results.forEach((result, index) => {
+            results.forEach(async (result, index) => { // Made callback async
                 if (result.error) {
                     console.error(`Failed to activate equb ${equbsToActivate[index].name}:`, result.error.message || result.error);
                 } else {
@@ -150,7 +195,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
                             user_id: id,
                             message: `The Equb group "${activatedEqub.name}" is now full and has become Active!`
                         }));
-                        supabase.from('notifications').insert(notifications).then(({ error }) => {
+                        await supabase.from('notifications').insert(notifications).then(({ error }) => { // Awaited insert
                             if (error) {
                                 console.error('Failed to send activation notifications:', error.message || error);
                             }
@@ -158,13 +203,14 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
                     }
                 }
             });
+            refreshEqubs(); // Refresh equbs after potential activations
         }
     };
 
     if (!loading && user.role === Role.Admin) {
         checkAndActivateEqubs();
     }
-  }, [memberships, equbs, loading, user.role]);
+  }, [memberships, equbs, loading, user.role, refreshEqubs]); // Added refreshEqubs to dependency array
 
   if (loading) {
     return (
@@ -175,7 +221,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ user, isEmailConfirm
   }
 
   return (
-    <DataContext.Provider value={{ currentUser: user, isEmailConfirmed, profiles, equbs, memberships, contributions, winners, notifications }}>
+    <DataContext.Provider value={{ currentUser: user, isEmailConfirmed, profiles, equbs, memberships, contributions, winners, notifications, refreshEqubs, refreshMemberships, refreshProfiles, refreshNotifications }}>
       {children}
     </DataContext.Provider>
   );

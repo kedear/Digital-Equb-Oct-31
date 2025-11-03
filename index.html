@@ -38,6 +38,17 @@
               'light-text-primary': '#111827',
               'light-text-secondary': '#6B7280',
             },
+            keyframes: {
+              'spin-text-fast': {
+                '0%, 100%': { transform: 'translateY(0) scale(1)', filter: 'blur(0px)', opacity: '1' },
+                '25%': { transform: 'translateY(-10px) scale(1.05)', filter: 'blur(2px)', opacity: '0.8' },
+                '50%': { transform: 'translateY(0) scale(1)', filter: 'blur(0px)', opacity: '1' },
+                '75%': { transform: 'translateY(10px) scale(1.05)', filter: 'blur(2px)', opacity: '0.8' },
+              },
+            },
+            animation: {
+              'spin-text-fast': 'spin-text-fast 0.15s ease-in-out infinite',
+            }
           },
         },
       }

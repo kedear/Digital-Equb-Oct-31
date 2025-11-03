@@ -1,3 +1,4 @@
+
 import React, { useState, useContext, useMemo, useEffect } from 'react';
 import { HomeIcon, EqubIcon, ProfileIcon, NotificationIcon, WalletIcon, LogoutIcon, ChevronDownIcon, XIcon, SearchIcon, CheckCircleIcon, BellOffIcon } from './Icons';
 import { DataContext } from './DataProvider';
@@ -243,6 +244,7 @@ interface EqubListProps {
 const EqubList: React.FC<EqubListProps> = ({ title, equbs, onEqubSelect, isMyEqubsList = false, notificationEqubIds, onToggleNotification }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [typeFilter, setTypeFilter] = useState('All');
+    const { memberships } = useContext(DataContext); // Get memberships from DataContext
 
     const filteredEqubs = useMemo(() => {
         return equbs.filter(equb =>
@@ -250,6 +252,11 @@ const EqubList: React.FC<EqubListProps> = ({ title, equbs, onEqubSelect, isMyEqu
             (typeFilter === 'All' || equb.equb_type === typeFilter)
         );
     }, [equbs, searchTerm, typeFilter]);
+
+    // Helper to get the actual count of approved members for an equb
+    const getApprovedMemberCount = (equbId: string) => {
+        return memberships.filter(m => m.equb_id === equbId && m.status === 'approved').length;
+    };
 
     return (
         <div>
@@ -283,6 +290,7 @@ const EqubList: React.FC<EqubListProps> = ({ title, equbs, onEqubSelect, isMyEqu
                         isMyEqub={isMyEqubsList}
                         notificationEnabled={notificationEqubIds?.has(equb.id)}
                         onToggleNotification={onToggleNotification}
+                        approvedMembersCount={getApprovedMemberCount(equb.id)} // Pass the actual approved member count
                     />
                 )) : <p className="text-light-text-secondary dark:text-dark-text-secondary text-center mt-8">No Equb groups found.</p>}
             </div>
@@ -363,9 +371,10 @@ interface EqubCardProps {
     isMyEqub?: boolean;
     notificationEnabled?: boolean;
     onToggleNotification?: (equb: Equb) => void;
+    approvedMembersCount: number; // New prop for approved member count
 }
 
-const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect, isMyEqub, notificationEnabled, onToggleNotification }) => {
+const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect, isMyEqub, notificationEnabled, onToggleNotification, approvedMembersCount }) => {
     const statusColors = {
         [EqubStatus.Open]: 'border-yellow-500',
         [EqubStatus.Active]: 'border-brand-primary',
@@ -378,7 +387,8 @@ const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect, isMyEqub, notificat
                 <div>
                     <h3 className="font-bold text-lg">{equb.name}</h3>
                     <p className="text-xs text-brand-primary font-medium">{equb.equb_type}</p>
-                    <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary mt-1">/{equb.max_members} members</p>
+                    {/* Display actual approved members / max members */}
+                    <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary mt-1">{approvedMembersCount} / {equb.max_members} members</p>
                 </div>
                 <div className="text-right">
                     <p className="font-bold text-brand-primary text-lg">{equb.contribution_amount} <span className="text-sm font-normal">ETB</span></p>

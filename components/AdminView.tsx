@@ -5,8 +5,8 @@ import { DataContext } from './DataProvider';
 import { ThemeContext, Theme } from '../App';
 import { DashboardIcon, EqubIcon, UsersIcon, LogoutIcon, SettingsIcon, WalletIcon, PlusIcon, PencilIcon, TrashIcon, XIcon, AlertTriangleIcon, SearchIcon, NotificationIcon, TrophyIcon, EyeIcon, CheckCircleIcon, BanIcon, DownloadIcon } from './Icons';
 import { ThemeSwitcher } from './ThemeSwitcher';
-import { UserProfile, Equb, EqubStatus, Membership, Contribution, EqubType, Notification, Winner } from '../types';
 import { NotificationPanel } from './NotificationPanel';
+import { UserProfile, Equb, EqubStatus, Membership, Contribution, EqubType, Notification, Winner, Role } from '../types';
 import { supabase } from '../services/supabase';
 
 const AdminView: React.FC = () => {
@@ -16,7 +16,8 @@ const AdminView: React.FC = () => {
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
     const profileMenuRef = useRef<HTMLDivElement>(null);
-    const [toastMessage, setToastMessage] = useState('');
+    // FIX: Changed toastMessage state to an object to support message type (success/error).
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
 
     useEffect(() => {
@@ -61,8 +62,9 @@ const AdminView: React.FC = () => {
         }
     };
     
-    const showToast = (message: string) => {
-        setToastMessage(message);
+    // FIX: Updated showToast to accept a type parameter, defaulting to 'success'.
+    const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+        setToast({ message, type });
     };
 
     const renderContent = () => {
@@ -76,7 +78,7 @@ const AdminView: React.FC = () => {
             case 'transactions':
                 return <TransactionManagement />;
             case 'settings':
-                 return <Settings />;
+                 return <Settings showToast={showToast} />;
             default:
                 return <AnalyticsDashboard />;
         }
@@ -112,7 +114,7 @@ const AdminView: React.FC = () => {
                             </button>
                             {isNotificationPanelOpen && (
                                 <NotificationPanel 
-                                    notifications={notifications.filter(n => n.user_id === currentUser?.id)} 
+                                    notifications={notifications.filter(n => n.user_id === currentUser.id)} 
                                     onClose={() => setIsNotificationPanelOpen(false)}
                                 />
                             )}
@@ -129,7 +131,7 @@ const AdminView: React.FC = () => {
                                     </div>
                                     <div className="p-2">
                                         <button onClick={handleLogout} className="w-full flex items-center space-x-2 py-2 px-3 rounded-md hover:bg-light-bg dark:hover:bg-brand-dark text-left">
-                                            <LogoutIcon className="w-5 h-5 text-light-text-secondary dark:text-dark-text-secondary" />
+                                            <LogoutIcon className="w-5 h-5" />
                                             <span>Logout</span>
                                         </button>
                                     </div>
@@ -142,7 +144,8 @@ const AdminView: React.FC = () => {
                     {renderContent()}
                 </div>
             </main>
-            <Toast message={toastMessage} show={!!toastMessage} onDismiss={() => setToastMessage('')} />
+            {/* FIX: Updated Toast component props to use the new `toast` state. */}
+            <Toast message={toast?.message || ''} show={!!toast} onDismiss={() => setToast(null)} type={toast?.type} />
         </div>
     );
 };
@@ -198,6 +201,7 @@ const AnalyticsDashboard: React.FC = () => {
                 acc[equb.equb_type] = (acc[equb.equb_type] || 0) + contribution.amount;
             }
             return acc;
+            // FIX: Added 'as Record<EqubType, number>' to ensure correct type for accumulator in reduce
         }, {} as Record<EqubType, number>);
 
         return Object.entries(totalPerType).map(([name, value]) => ({ name, value }));
@@ -276,7 +280,7 @@ const AnalyticsDashboard: React.FC = () => {
                                     <Cell key={`cell-${entry.name}`} fill={CONTRIBUTION_PIE_COLORS[entry.name as EqubType]} />
                                 ))}
                             </Pie>
-                            <Tooltip contentStyle={{ backgroundColor: chartConfig.tooltipBg, border: `1px solid ${chartConfig.tooltipBorder}` }} formatter={(value: number) => `${value.toLocaleString()} ETB`} />
+                            <Tooltip contentStyle={{ backgroundColor: chartConfig.tooltipBg, border: `19x solid ${chartConfig.tooltipBorder}` }} formatter={(value: number) => `${value.toLocaleString()} ETB`} />
                             <Legend />
                         </PieChart>
                     </ResponsiveContainer>
@@ -293,8 +297,9 @@ const StatCard: React.FC<{ title: string; value: number | string }> = ({ title, 
     </div>
 );
 
-const EqubManagement: React.FC<{ showToast: (message: string) => void }> = ({ showToast }) => {
-    const { equbs, profiles } = useContext(DataContext);
+// FIX: Updated `showToast` prop type to include optional 'type' parameter
+const EqubManagement: React.FC<{ showToast: (message: string, type?: 'success' | 'error') => void }> = ({ showToast }) => {
+    const { equbs, profiles, memberships } = useContext(DataContext); // Added memberships to context
     const [isFormModalOpen, setIsFormModalOpen] = useState(false);
     const [editingEqub, setEditingEqub] = useState<Equb | null>(null);
     const [deletingEqub, setDeletingEqub] = useState<Equb | null>(null);
@@ -314,6 +319,10 @@ const EqubManagement: React.FC<{ showToast: (message: string) => void }> = ({ sh
         );
     }, [equbs, searchTerm, statusFilter, typeFilter]);
 
+    // Helper to get the actual count of approved members for an equb
+    const getApprovedMemberCount = (equbId: string) => {
+        return memberships.filter(m => m.equb_id === equbId && m.status === 'approved').length;
+    };
 
     const openFormModal = (equb: Equb | null = null) => {
         setEditingEqub(equb);
@@ -411,7 +420,7 @@ const EqubManagement: React.FC<{ showToast: (message: string) => void }> = ({ sh
                                     <td className="p-4 text-light-text-secondary dark:text-dark-text-secondary">{index + 1}</td>
                                     <td className="p-4 font-semibold">{equb.name}</td>
                                     <td className="p-4">{equb.equb_type}</td>
-                                    <td className="p-4">{equb.member_count} / {equb.max_members}</td>
+                                    <td className="p-4">{getApprovedMemberCount(equb.id)} / {equb.max_members}</td> {/* FIX: Display actual approved member count */}
                                     <td className="p-4">{formatCurrency(equb.contribution_amount)} ETB</td>
                                     <td className="p-4 capitalize">{equb.cycle}</td>
                                     <td className="p-4">{equb.start_date}</td>
@@ -426,7 +435,7 @@ const EqubManagement: React.FC<{ showToast: (message: string) => void }> = ({ sh
                                             <TrophyIcon className={`w-5 h-5 ${equb.status !== EqubStatus.Active ? 'opacity-50' : ''}`}/>
                                         </button>
                                         <button onClick={() => openFormModal(equb)} className="text-brand-primary hover:text-brand-accent p-1" aria-label={`Edit ${equb.name}`} title="Edit Equb"><PencilIcon className="w-5 h-5"/></button>
-                                        <button onClick={() => setDeletingEqub(equb)} className="text-brand-danger hover:text-red-700 p-1" aria-label={`Delete ${equb.name}`} title="Delete Equb"><TrashIcon className="w-5 h-5"/></button>
+                                        <button onClick={() => setDeletingEqub(equb)} className="text-brand-danger hover:red-700 p-1" aria-label={`Delete ${equb.name}`} title="Delete Equb"><TrashIcon className="w-5 h-5"/></button>
                                     </td>
                                 </tr>
                             ))}
@@ -447,8 +456,9 @@ const EqubManagement: React.FC<{ showToast: (message: string) => void }> = ({ sh
     );
 };
 
-const MemberManagement: React.FC<{ showToast: (message: string) => void }> = ({ showToast }) => {
-    const { profiles, memberships, equbs, currentUser } = useContext(DataContext);
+// FIX: Updated `showToast` prop type to include optional 'type' parameter
+const MemberManagement: React.FC<{ showToast: (message: string, type?: 'success' | 'error') => void }> = ({ showToast }) => {
+    const { profiles, memberships, equbs, currentUser, refreshMemberships, refreshProfiles } = useContext(DataContext);
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState<Record<string, boolean>>({});
 
@@ -492,10 +502,15 @@ const MemberManagement: React.FC<{ showToast: (message: string) => void }> = ({ 
             
             await supabase.from('notifications').insert(notificationsToInsert);
             showToast(`${user?.full_name}'s request has been ${newStatus}.`);
+
+            // Explicitly refresh memberships and profiles to update UI immediately
+            await refreshMemberships();
+            await refreshProfiles();
     
         } catch (error: any) {
             console.error(`Error handling request for ${membership.user_id}:`, error);
-            showToast(`Failed to ${newStatus} request: ${error.message}`);
+            // FIX: Passed 'error' type to showToast for error messages.
+            showToast(`Failed to ${newStatus} request: ${error.message}`, 'error');
         } finally {
             setLoading(prev => ({ ...prev, [key]: false }));
         }
@@ -511,15 +526,18 @@ const MemberManagement: React.FC<{ showToast: (message: string) => void }> = ({ 
             .eq('id', togglingStatusMember.id);
             
         if (error) {
-            showToast(`Error updating status: ${error.message}`);
+            // FIX: Passed 'error' type to showToast for error messages.
+            showToast(`Error updating status: ${error.message}`, 'error');
         } else {
             showToast(`${togglingStatusMember.full_name}'s account has been ${newStatus ? 'activated' : 'deactivated'}.`);
+            await refreshProfiles(); // Refresh profiles after status change
         }
         setTogglingStatusMember(null);
     };
 
     const exportToCsv = () => {
         if (filteredMembers.length === 0) {
+            // FIX: Corrected showToast call to pass message and type.
             showToast('No members to export.', 'error');
             return;
         }
@@ -683,7 +701,7 @@ const TransactionManagement: React.FC = () => {
     const [loading, setLoading] = useState<Record<string, boolean>>({});
 
     const getUserName = (id: string) => profiles.find(u => u.id === id)?.full_name || 'Unknown';
-    const getEqubName = (id: string) => equbs.find(e => e.id === id)?.name || 'Unknown';
+    const getEqubName = (id: string) => equbs.find(e => e.id === e.id)?.name || 'Unknown';
 
     const filteredContributions = useMemo(() => {
         return contributions
@@ -788,7 +806,7 @@ interface EqubFormModalProps {
     onClose: (success?: boolean) => void;
 }
 const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
-    const { currentUser, memberships } = useContext(DataContext);
+    const { currentUser, memberships, refreshEqubs } = useContext(DataContext);
     const [loading, setLoading] = useState(false);
     const [formData, setFormData] = useState({
         name: equb?.name || '',
@@ -840,6 +858,7 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
             const { error } = await supabase.from('equbs').update({ ...dataToSubmit, winnable_amount }).eq('id', equb.id);
             if (!error) {
                 success = true;
+                await refreshEqubs(); // Refresh equbs after update
                 const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
                 if (memberIds.length > 0) {
                   const notifications = memberIds.map(memberId => ({
@@ -852,8 +871,11 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
                  console.error("Update error:", error);
             }
         } else { // Creating new Equb
-            const { error } = await supabase.from('equbs').insert({ ...dataToSubmit, created_by: currentUser.id, winnable_amount, member_count: 0 });
-            if (!error) success = true;
+            const { error } = await supabase.from('equbs').insert({ ...dataToSubmit, created_by: currentUser.id, winnable_amount });
+            if (!error) {
+                success = true;
+                await refreshEqubs(); // Refresh equbs after creation
+            }
             else console.error("Insert error:", error);
         }
 
@@ -927,17 +949,35 @@ const EqubFormModal: React.FC<EqubFormModalProps> = ({ equb, onClose }) => {
     );
 };
 
-const Settings: React.FC = () => {
+// FIX: Added showToast prop.
+const Settings: React.FC<{ showToast: (message: string, type?: 'success' | 'error') => void }> = ({ showToast }) => {
+    const [isSendNotificationModalOpen, setIsSendNotificationModalOpen] = useState(false);
+
     return (
         <div>
             <div className="bg-light-card dark:bg-brand-card p-6 rounded-lg border border-light-border dark:border-brand-border">
                 <h3 className="text-xl font-semibold mb-4">Application Settings</h3>
-                <p className="text-light-text-secondary dark:text-dark-text-secondary">
-                    This is a placeholder for future settings. You'll be able to manage notification preferences,
-                    user roles, and other system configurations here.
+                <p className="text-light-text-secondary dark:text-dark-text-secondary mb-6">
+                    Manage system configurations and send important announcements.
                 </p>
-                {/* Future settings components can go here */}
+
+                <div className="space-y-4">
+                    <button
+                        onClick={() => setIsSendNotificationModalOpen(true)}
+                        className="w-full flex items-center justify-center space-x-2 bg-brand-primary text-white font-bold py-3 px-4 rounded-lg hover:opacity-90"
+                    >
+                        <NotificationIcon className="w-5 h-5"/>
+                        <span>Send Custom Notification</span>
+                    </button>
+                    {/* Future settings components can go here */}
+                </div>
             </div>
+            {isSendNotificationModalOpen && (
+                <SendNotificationModal 
+                    onClose={() => setIsSendNotificationModalOpen(false)} 
+                    showToast={showToast} 
+                />
+            )}
         </div>
     );
 };
@@ -1022,27 +1062,68 @@ interface DrawWinnerModalProps {
     onClose: (success?: boolean) => void;
 }
 const DrawWinnerModal: React.FC<DrawWinnerModalProps> = ({ equb, onClose }) => {
-    const { profiles, winners, memberships } = useContext(DataContext);
+    const { profiles, winners, memberships, refreshEqubs } = useContext(DataContext);
+    const [eligibleMembers, setEligibleMembers] = useState<UserProfile[]>([]);
     const [randomWinner, setRandomWinner] = useState<UserProfile | null>(null);
+    const [displayWinnerName, setDisplayWinnerName] = useState<string>('');
+    const [isSpinning, setIsSpinning] = useState(false);
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const spinIntervalRef = useRef<number | null>(null);
     
     useEffect(() => {
-        const selectRandomWinner = () => {
-            const pastWinnerIds = winners.filter(w => w.equb_id === equb.id).map(w => w.user_id);
-            const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
-            const eligibleMembers = profiles.filter(u => memberIds.includes(u.id) && !pastWinnerIds.includes(u.id));
+        const pastWinnerIds = winners.filter(w => w.equb_id === equb.id).map(w => w.user_id);
+        const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
+        const currentEligibleMembers = profiles.filter(u => memberIds.includes(u.id) && !pastWinnerIds.includes(u.id));
 
-            if (eligibleMembers.length > 0) {
-                const randomIndex = Math.floor(Math.random() * eligibleMembers.length);
-                setRandomWinner(eligibleMembers[randomIndex]);
-            } else {
-                setErrorMessage("All members have already won a round in this Equb.");
-            }
+        if (currentEligibleMembers.length > 0) {
+            setEligibleMembers(currentEligibleMembers);
             setLoading(false);
+            setDisplayWinnerName('?'); // Initial display
+        } else {
+            setErrorMessage("All eligible members have already won, or there are no approved members for this Equb.");
+            setLoading(false);
+        }
+        
+        return () => {
+            if (spinIntervalRef.current) {
+                clearInterval(spinIntervalRef.current);
+            }
         };
-        selectRandomWinner();
     }, [equb, winners, memberships, profiles]);
+
+    const startSpin = () => {
+        if (eligibleMembers.length === 0) {
+            setErrorMessage("No eligible members to draw a winner.");
+            return;
+        }
+
+        setIsSpinning(true);
+        setRandomWinner(null);
+        setDisplayWinnerName('Spinning...'); // Initial text during spin
+        setErrorMessage(null);
+
+        let spinCount = 0;
+        const spinDuration = 3000; // 3 seconds for spinning
+        const intervalTime = 100; // Update name every 100ms
+        
+        spinIntervalRef.current = window.setInterval(() => {
+            const randomIndex = Math.floor(Math.random() * eligibleMembers.length);
+            setDisplayWinnerName(eligibleMembers[randomIndex].full_name);
+            spinCount += intervalTime;
+
+            if (spinCount >= spinDuration) {
+                clearInterval(spinIntervalRef.current!);
+                spinIntervalRef.current = null;
+                // Final selection
+                const finalWinnerIndex = Math.floor(Math.random() * eligibleMembers.length);
+                const winner = eligibleMembers[finalWinnerIndex];
+                setRandomWinner(winner);
+                setDisplayWinnerName(winner.full_name);
+                setIsSpinning(false);
+            }
+        }, intervalTime);
+    };
 
     const calculateNextDueDate = (currentDueDate: string, cycle: 'daily' | 'weekly' | 'monthly'): string => {
         const date = new Date(currentDueDate);
@@ -1075,20 +1156,26 @@ const DrawWinnerModal: React.FC<DrawWinnerModalProps> = ({ equb, onClose }) => {
             return;
         }
 
-        const isLastWinner = newWinnerData.round === equb.max_members;
+        const isLastWinner = (pastWinnersCount + 1) === equb.max_members; // Correct check for last winner
         const equbUpdateData: Partial<Equb> = {
             next_due_date: calculateNextDueDate(equb.next_due_date, equb.cycle),
             status: isLastWinner ? EqubStatus.Completed : EqubStatus.Active,
         };
 
-        await supabase.from('equbs').update(equbUpdateData).eq('id', equb.id);
-        
+        const { error: equbUpdateError } = await supabase.from('equbs').update(equbUpdateData).eq('id', equb.id);
+        if (equbUpdateError) {
+            setErrorMessage(`Failed to update Equb status: ${equbUpdateError.message}`);
+            setLoading(false);
+            return;
+        }
+        await refreshEqubs(); // Refresh equbs after updating its status
+
         const memberIds = memberships.filter(m => m.equb_id === equb.id && m.status === 'approved').map(m => m.user_id);
-        const notifications = memberIds.map(memberId => ({
+        const notificationsToInsert = memberIds.map(memberId => ({
             user_id: memberId,
             message: `${randomWinner.full_name} has won round ${newWinnerData.round} of "${equb.name}"!`,
         }));
-        await supabase.from('notifications').insert(notifications);
+        await supabase.from('notifications').insert(notificationsToInsert);
         
         setLoading(false);
         onClose(true);
@@ -1101,30 +1188,62 @@ const DrawWinnerModal: React.FC<DrawWinnerModalProps> = ({ equb, onClose }) => {
                     <h3 className="text-xl font-bold text-brand-primary">Draw Winner for "{equb.name}"</h3>
                     <button onClick={() => onClose(false)} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
                 </div>
-                <div className="min-h-[120px] flex items-center justify-center">
+                <div className="min-h-[160px] flex flex-col items-center justify-center p-4">
                     {loading ? (
-                        <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin"></div>
-                    ) : errorMessage ? (
-                        <p className="text-center py-4 text-brand-danger">{errorMessage}</p>
-                    ) : randomWinner ? (
-                        <div className="text-center">
-                            <p className="mb-2 text-light-text-secondary dark:text-dark-text-secondary">The system has randomly selected:</p>
-                            <p className="text-2xl font-bold text-brand-primary">{randomWinner.full_name}</p>
-                            <p className="text-sm mt-4">Confirm to finalize the draw and notify all members.</p>
+                        <div className="w-8 h-8 border-4 border-brand-primary border-t-transparent rounded-full animate-spin" role="status">
+                            <span className="sr-only">Loading eligible members...</span>
                         </div>
-                    ) : null}
+                    ) : errorMessage ? (
+                        <p className="text-center py-4 text-brand-danger" aria-live="polite">{errorMessage}</p>
+                    ) : (
+                        <div className="text-center w-full">
+                            <p className="mb-4 text-light-text-secondary dark:text-dark-text-secondary">
+                                {randomWinner ? 'The system has randomly selected:' : 'Click "Spin to Draw" to find the next winner!'}
+                            </p>
+                            <div className="relative h-20 w-full flex items-center justify-center border-2 border-dashed border-light-border dark:border-brand-border rounded-lg bg-light-bg dark:bg-brand-dark mb-4 overflow-hidden">
+                                <div 
+                                    className={`text-5xl font-extrabold text-brand-primary transition-all duration-300 ${isSpinning ? 'animate-spin-text-fast' : ''}`}
+                                    aria-live="polite"
+                                >
+                                    {displayWinnerName}
+                                </div>
+                            </div>
+                            {randomWinner && !isSpinning && (
+                                <p className="text-sm mt-4">Confirm to finalize the draw and notify all members.</p>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex justify-end space-x-4 mt-4">
-                    <button type="button" onClick={() => onClose(false)} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
                     <button 
                         type="button" 
-                        onClick={handleConfirmWinner} 
-                        disabled={loading || !!errorMessage || !randomWinner} 
-                        className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50"
+                        onClick={() => onClose(false)} 
+                        className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80"
+                        disabled={isSpinning}
                     >
-                        {loading ? 'Confirming...' : 'Confirm Winner'}
+                        Cancel
                     </button>
+                    {!randomWinner && !errorMessage && !loading && (
+                        <button 
+                            type="button" 
+                            onClick={startSpin} 
+                            disabled={isSpinning || eligibleMembers.length === 0}
+                            className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50"
+                        >
+                            {isSpinning ? 'Spinning...' : 'Spin to Draw Winner'}
+                        </button>
+                    )}
+                    {randomWinner && !isSpinning && (
+                        <button 
+                            type="button" 
+                            onClick={handleConfirmWinner} 
+                            disabled={loading || !!errorMessage || !randomWinner} 
+                            className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50"
+                        >
+                            {loading ? 'Confirming...' : 'Confirm Winner'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
@@ -1132,7 +1251,7 @@ const DrawWinnerModal: React.FC<DrawWinnerModalProps> = ({ equb, onClose }) => {
 };
 
 const EqubDetailModal: React.FC<{ equb: Equb; onClose: () => void }> = ({ equb, onClose }) => {
-    const { profiles, memberships } = useContext(DataContext);
+    const { profiles, memberships, winners } = useContext(DataContext);
 
     const equbMembers = useMemo(() => {
         const memberLinks = memberships
@@ -1143,6 +1262,16 @@ const EqubDetailModal: React.FC<{ equb: Equb; onClose: () => void }> = ({ equb, 
             return { ...profile, join_date: link.join_date };
         }).filter(Boolean); // Filter out any undefined profiles
     }, [equb.id, memberships, profiles]);
+
+    const equbWinners = useMemo(() => {
+        return winners
+            .filter(w => w.equb_id === equb.id)
+            .sort((a, b) => a.round - b.round) // Sort by round number
+            .map(winner => {
+                const profile = profiles.find(p => p.id === winner.user_id);
+                return { ...winner, winner_name: profile?.full_name || 'Unknown' };
+            });
+    }, [equb.id, winners, profiles]);
 
     const creator = useMemo(() => profiles.find(p => p.id === equb.created_by), [profiles, equb.created_by]);
 
@@ -1209,6 +1338,28 @@ const EqubDetailModal: React.FC<{ equb: Equb; onClose: () => void }> = ({ equb, 
                                     <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary text-center py-8">No members have joined yet.</p>
                                 )}
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Winner History Section */}
+                    <div className="mb-6">
+                        <h4 className="font-bold text-lg mb-2">Winner History</h4>
+                        <div className="text-sm p-4 bg-light-bg dark:bg-brand-dark rounded-lg">
+                            {equbWinners.length > 0 ? (
+                                <ul className="space-y-3">
+                                    {equbWinners.map(winner => (
+                                        <li key={winner.id} className="flex items-center justify-between border-b border-light-border dark:border-brand-border pb-2 last:border-b-0">
+                                            <div>
+                                                <p className="font-semibold text-light-text-primary dark:text-dark-text-primary">Round {winner.round}: {winner.winner_name}</p>
+                                                <p className="text-xs text-light-text-secondary dark:text-dark-text-secondary">Won on: {new Date(winner.win_date).toLocaleDateString()}</p>
+                                            </div>
+                                            <p className="font-bold text-brand-primary">{equb.winnable_amount.toLocaleString()} ETB</p>
+                                        </li>
+                                    ))}
+                                    </ul>
+                            ) : (
+                                <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary text-center py-4">No winners have been drawn yet for this Equb.</p>
+                            )}
                         </div>
                     </div>
 
@@ -1294,7 +1445,8 @@ const MemberFormModal: React.FC<MemberFormModalProps> = ({ user, onClose }) => {
     );
 };
 
-const Toast: React.FC<{ message: string; show: boolean; onDismiss: () => void }> = ({ message, show, onDismiss }) => {
+// FIX: Updated Toast component to support 'success' and 'error' types, similar to MemberView.
+const Toast: React.FC<{ message: string; show: boolean; onDismiss: () => void; type?: 'success' | 'error' }> = ({ message, show, onDismiss, type = 'success' }) => {
     useEffect(() => {
         if (show) {
             const timer = setTimeout(() => onDismiss(), 3000);
@@ -1302,10 +1454,182 @@ const Toast: React.FC<{ message: string; show: boolean; onDismiss: () => void }>
         }
     }, [show, onDismiss]);
 
+    const colors = {
+        success: 'bg-green-600',
+        error: 'bg-red-600',
+    };
+
     return (
-        <div className={`fixed bottom-5 right-5 z-50 transition-all duration-300 transform ${show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'} bg-green-600 text-white py-3 px-5 rounded-lg shadow-lg flex items-center space-x-2`}>
-            <CheckCircleIcon className="w-5 h-5" />
+        <div className={`fixed bottom-5 right-5 z-50 transition-all duration-300 transform ${show ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'} ${colors[type]} text-white py-3 px-5 rounded-lg shadow-lg flex items-center space-x-2`}>
+            {type === 'success' ? <CheckCircleIcon className="w-5 h-5" /> : <XIcon className="w-5 h-5" />}
             <span>{message}</span>
+        </div>
+    );
+};
+
+interface SendNotificationModalProps {
+    onClose: () => void;
+    showToast: (message: string, type?: 'success' | 'error') => void;
+}
+
+const SendNotificationModal: React.FC<SendNotificationModalProps> = ({ onClose, showToast }) => {
+    const { profiles, equbs, memberships, currentUser, refreshNotifications } = useContext(DataContext);
+    const [targetType, setTargetType] = useState<'all_members' | 'specific_member' | 'equb_members'>('all_members');
+    const [targetId, setTargetId] = useState<string>('');
+    const [message, setMessage] = useState<string>('');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
+    const memberProfiles = useMemo(() => profiles.filter(p => p.role === Role.Member), [profiles]);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        if (!message.trim()) {
+            showToast('Notification message cannot be empty.', 'error');
+            setLoading(false);
+            return;
+        }
+
+        let notificationsToInsert: Omit<Notification, 'id' | 'created_at' | 'read'>[] = [];
+
+        try {
+            if (targetType === 'all_members') {
+                notificationsToInsert = memberProfiles.map(member => ({
+                    user_id: member.id,
+                    message: message,
+                }));
+            } else if (targetType === 'specific_member') {
+                if (!targetId) {
+                    showToast('Please select a specific member.', 'error');
+                    setLoading(false);
+                    return;
+                }
+                notificationsToInsert.push({ user_id: targetId, message: message });
+            } else if (targetType === 'equb_members') {
+                if (!targetId) {
+                    showToast('Please select an Equb group.', 'error');
+                    setLoading(false);
+                    return;
+                }
+                const equbMemberIds = memberships
+                    .filter(m => m.equb_id === targetId && m.status === 'approved')
+                    .map(m => m.user_id);
+                
+                if (equbMemberIds.length === 0) {
+                    showToast('The selected Equb has no approved members.', 'error');
+                    setLoading(false);
+                    return;
+                }
+                notificationsToInsert = equbMemberIds.map(memberId => ({
+                    user_id: memberId,
+                    message: message,
+                }));
+            }
+            
+            // Add notification for the admin who sent it
+            notificationsToInsert.push({ user_id: currentUser.id, message: `You sent: "${message.substring(0, 50)}..."` });
+
+            const { error } = await supabase.from('notifications').insert(notificationsToInsert);
+
+            if (error) {
+                throw error;
+            }
+
+            showToast('Notification(s) sent successfully!');
+            await refreshNotifications(); // Refresh admin's notifications to show "you sent" message
+            onClose();
+        } catch (error: any) {
+            console.error('Error sending notification:', error);
+            showToast(`Failed to send notification: ${error.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+            <div className="bg-light-card dark:bg-brand-card rounded-lg p-6 max-w-lg w-full" role="dialog" aria-modal="true" aria-labelledby="send-notification-title">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 id="send-notification-title" className="text-xl font-bold text-brand-primary">Send Custom Notification</h3>
+                    <button onClick={onClose} aria-label="Close modal"><XIcon className="w-6 h-6"/></button>
+                </div>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label htmlFor="targetType" className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary mb-1">Send to</label>
+                        <select 
+                            id="targetType" 
+                            name="targetType" 
+                            value={targetType} 
+                            onChange={(e) => {
+                                setTargetType(e.target.value as 'all_members' | 'specific_member' | 'equb_members');
+                                setTargetId(''); // Reset targetId when targetType changes
+                            }} 
+                            className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2"
+                            required
+                        >
+                            <option value="all_members">All Members</option>
+                            <option value="specific_member">Specific Member</option>
+                            <option value="equb_members">Members of an Equb Group</option>
+                        </select>
+                    </div>
+
+                    {(targetType === 'specific_member' || targetType === 'equb_members') && (
+                        <div>
+                            <label htmlFor="targetId" className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary mb-1">
+                                {targetType === 'specific_member' ? 'Select Member' : 'Select Equb Group'}
+                            </label>
+                            <select 
+                                id="targetId" 
+                                name="targetId" 
+                                value={targetId} 
+                                onChange={(e) => setTargetId(e.target.value)} 
+                                className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2"
+                                required
+                            >
+                                <option value="">-- Select --</option>
+                                {targetType === 'specific_member' ? (
+                                    memberProfiles.map(member => (
+                                        <option key={member.id} value={member.id}>{member.full_name} ({member.email})</option>
+                                    ))
+                                ) : (
+                                    equbs.map(equb => (
+                                        <option key={equb.id} value={equb.id}>{equb.name} ({equb.equb_type})</option>
+                                    ))
+                                )}
+                            </select>
+                        </div>
+                    )}
+
+                    <div>
+                        <label htmlFor="message" className="block text-sm font-medium text-light-text-secondary dark:text-dark-text-secondary mb-1">Message</label>
+                        <textarea 
+                            id="message" 
+                            name="message" 
+                            rows={4}
+                            value={message} 
+                            onChange={(e) => setMessage(e.target.value)} 
+                            className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-2" 
+                            placeholder="Enter your notification message here..."
+                            required
+                        ></textarea>
+                    </div>
+
+                    <div className="flex justify-end space-x-4 mt-6">
+                        <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-light-border dark:bg-brand-border hover:opacity-80">Cancel</button>
+                        <button type="submit" disabled={loading} className="px-4 py-2 rounded-lg bg-brand-primary text-white font-bold disabled:opacity-50">
+                            {loading ? 'Sending...' : 'Send Notification'}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 };

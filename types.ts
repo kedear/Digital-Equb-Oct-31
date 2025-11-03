@@ -1,3 +1,4 @@
+
 // Corresponds to the 'app_role' enum in Supabase
 export enum Role {
   Admin = 'admin',
