@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { supabase } from '../services/supabase';
 import { XIcon } from './Icons';
@@ -104,21 +103,21 @@ export const AuthView: React.FC<AuthViewProps> = ({ onBackToHome }) => {
                 <>
                   <div>
                       <label htmlFor="fullName" className="sr-only">Full Name</label>
-                      <input id="fullName" type="text" placeholder="Hawa Sani" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
+                      <input id="fullName" type="text" placeholder="Full Name" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
                   </div>
                   <div>
                       <label htmlFor="phone" className="sr-only">Phone Number</label>
-                      <input id="phone" type="tel" placeholder="0912233445" value={phone} onChange={e => setPhone(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
+                      <input id="phone" type="tel" placeholder="Your phone number" value={phone} onChange={e => setPhone(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
                   </div>
                   <div>
                       <label htmlFor="location" className="sr-only">Location</label>
-                      <input id="location" type="text" placeholder="Addis Ababa" value={location} onChange={e => setLocation(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
+                      <input id="location" type="text" placeholder="Location" value={location} onChange={e => setLocation(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
                   </div>
                 </>
               )}
               <div>
                   <label htmlFor="email" className="sr-only">Email</label>
-                  <input id="email" type="email" placeholder="hawasani8@gmail.com" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
+                  <input id="email" type="email" placeholder="Your email address" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-light-bg dark:bg-brand-dark border border-light-border dark:border-brand-border rounded-lg p-3 text-light-text-primary dark:text-dark-text-primary focus:ring-2 focus:ring-brand-primary focus:outline-none" required />
               </div>
               <div>
                   <label htmlFor="password" className="sr-only">Password</label>

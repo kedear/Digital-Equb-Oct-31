@@ -701,7 +701,8 @@ const TransactionManagement: React.FC = () => {
     const [loading, setLoading] = useState<Record<string, boolean>>({});
 
     const getUserName = (id: string) => profiles.find(u => u.id === id)?.full_name || 'Unknown';
-    const getEqubName = (id: string) => equbs.find(e => e.id === e.id)?.name || 'Unknown';
+    // FIX: Corrected getEqubName to use the 'id' parameter for lookup
+    const getEqubName = (id: string) => equbs.find(e => e.id === id)?.name || 'Unknown';
 
     const filteredContributions = useMemo(() => {
         return contributions

@@ -1,4 +1,3 @@
-
 import React, { useState, useContext, useMemo, useEffect } from 'react';
 import { HomeIcon, EqubIcon, ProfileIcon, NotificationIcon, WalletIcon, LogoutIcon, ChevronDownIcon, XIcon, SearchIcon, CheckCircleIcon, BellOffIcon } from './Icons';
 import { DataContext } from './DataProvider';
@@ -154,7 +153,7 @@ const MemberView: React.FC = () => {
 
     const renderContent = () => {
         if (selectedEqub) {
-            return <EqubDetailPage equb={selectedEqub} onBack={() => handleTabChange(activeTab)} />;
+            return <EqubDetailPage equb={selectedEqub} onBack={() => handleTabChange(activeTab)} showToast={showToast} />;
         }
         switch (activeTab) {
             case 'home':
@@ -299,11 +298,15 @@ const EqubList: React.FC<EqubListProps> = ({ title, equbs, onEqubSelect, isMyEqu
 };
 
 const MemberHome: React.FC<{ onEqubSelect: (equb: Equb) => void; }> = ({ onEqubSelect }) => {
-    const { equbs, currentUser } = useContext(DataContext);
-    
+    const { currentUser, equbs, memberships } = useContext(DataContext); // Added memberships to DataContext
+
     const formatCurrency = (amount: number) => {
         return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
+    
+    // The getApprovedMemberCount definition was moved to EqubList,
+    // so it doesn't need to be redefined here for passing to EqubList.
+    // EqubList will manage getting it and passing to EqubCard.
 
     return (
         <div>
@@ -316,6 +319,7 @@ const MemberHome: React.FC<{ onEqubSelect: (equb: Equb) => void; }> = ({ onEqubS
                     <WalletIcon className="w-10 h-10 opacity-50"/>
                 </div>
             </div>
+            {/* Pass approvedMembersCount prop to EqubList, which will then pass it to EqubCard */}
             <EqubList title="Explore Equb Groups" equbs={equbs} onEqubSelect={onEqubSelect} />
         </div>
     );
@@ -418,12 +422,19 @@ const EqubCard: React.FC<EqubCardProps> = ({ equb, onSelect, isMyEqub, notificat
     );
 };
 
-const EqubDetailPage: React.FC<{equb: Equb, onBack: () => void}> = ({ equb, onBack }) => {
+interface EqubDetailPageProps {
+    equb: Equb;
+    onBack: () => void;
+    showToast: (message: string, type?: 'success' | 'error') => void; // Added showToast prop
+}
+
+const EqubDetailPage: React.FC<EqubDetailPageProps> = ({ equb, onBack, showToast }) => {
     const { currentUser, memberships, profiles } = useContext(DataContext);
     const [showTerms, setShowTerms] = useState(false);
     const [loading, setLoading] = useState(false);
     const [showSuccessMessage, setShowSuccessMessage] = useState(false);
     
+    // Direct lookup of adminUser
     const adminUser = useMemo(() => profiles.find(p => p.role === 'admin'), [profiles]);
 
     const isMember = useMemo(() => 
@@ -486,7 +497,7 @@ const EqubDetailPage: React.FC<{equb: Equb, onBack: () => void}> = ({ equb, onBa
             <p className="text-sm font-semibold text-brand-primary mb-1">{equb.equb_type}</p>
             <p className="text-light-text-secondary dark:text-dark-text-secondary mb-4">Contribution: {equb.contribution_amount} ETB / {equb.cycle}</p>
             
-            {isMember ? <MemberEqubInfo equb={equb} /> : <PublicEqubInfo equb={equb} />}
+            {isMember ? <MemberEqubInfo equb={equb} showToast={showToast} /> : <PublicEqubInfo equb={equb} />}
 
             {!isMember && (
                 <div className="mt-6">
@@ -554,15 +565,18 @@ const ContributionStatusBadge: React.FC<{ status: ContributionStatus }> = ({ sta
     return <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${colors[status]}`}>{status}</span>
 };
 
-const MemberEqubInfo: React.FC<{equb: Equb}> = ({ equb }) => {
-    const { currentUser, contributions, winners, profiles } = useContext(DataContext);
+interface MemberEqubInfoProps {
+    equb: Equb;
+    showToast: (message: string, type?: 'success' | 'error') => void;
+}
+
+const MemberEqubInfo: React.FC<MemberEqubInfoProps> = ({ equb, showToast }) => {
+    const { currentUser, contributions, winners, profiles, refreshProfiles } = useContext(DataContext);
     const [showContributionModal, setShowContributionModal] = useState(false);
     const [showContributionSuccess, setShowContributionSuccess] = useState(false);
     const [statusFilter, setStatusFilter] = useState<ContributionStatus | 'All'>('All');
     const [loading, setLoading] = useState(false);
     
-    const adminUser = useMemo(() => profiles.find(p => p.role === 'admin'), [profiles]);
-
     const myContributions = useMemo(() => 
         contributions
             .filter(c => c.equb_id === equb.id && c.user_id === currentUser?.id)
@@ -579,38 +593,104 @@ const MemberEqubInfo: React.FC<{equb: Equb}> = ({ equb }) => {
     const getUser = (id: string): UserProfile | undefined => profiles.find(u => u.id === id);
 
     const handleMakeContribution = async () => {
-        if (!currentUser || !adminUser) return;
         setLoading(true);
+        console.log("handleMakeContribution triggered. Current profiles:", profiles);
+
+        let adminUser = profiles.find(p => p.role === 'admin');
+
+        // Fallback: If admin not found in context, attempt a direct fetch
+        if (!adminUser) {
+            console.warn("Admin user not found in context profiles. Attempting direct fetch for admin.");
+            const { data: fetchedAdmin, error: fetchError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('role', 'admin')
+                .single();
+
+            if (fetchError) {
+                console.error("Error directly fetching admin profile:", fetchError);
+                // Continue without adminUser, will trigger the error below
+            } else if (fetchedAdmin) {
+                adminUser = fetchedAdmin;
+                console.log("Admin user successfully fetched directly:", adminUser);
+            }
+        }
+
+        if (!currentUser) { 
+            console.error("handleMakeContribution failed: Current user profile not found.");
+            showToast('Current user profile not found. Cannot make contribution.', 'error');
+            setLoading(false);
+            return;
+        }
         
+        if (!adminUser) { 
+            console.error("handleMakeContribution failed: Admin profile not found for notifications.");
+            setShowContributionModal(false); 
+            showToast('Admin profile required for notifications not found. Please ensure an admin user exists.', 'error');
+            setLoading(false);
+            return;
+        }
+
         try {
+            // 1. Check wallet balance
+            if (currentUser.wallet_balance < equb.contribution_amount) {
+                setShowContributionModal(false); 
+                showToast('Your wallet balance is too low to make this contribution.', 'error');
+                setLoading(false);
+                return;
+            }
+
+            // 2. Subtract from wallet balance and update profile
+            const newWalletBalance = currentUser.wallet_balance - equb.contribution_amount;
+            const { error: profileUpdateError } = await supabase
+                .from('profiles')
+                .update({ wallet_balance: newWalletBalance })
+                .eq('id', currentUser.id);
+
+            if (profileUpdateError) {
+                throw profileUpdateError;
+            }
+
+            // 3. Insert contribution
             const { error: contributionError } = await supabase.from('contributions').insert({
                 equb_id: equb.id,
                 user_id: currentUser.id,
                 amount: equb.contribution_amount,
-                status: 'pending',
+                status: 'pending', // Still pending admin verification
             });
-            if (contributionError) throw contributionError;
+
+            if (contributionError) {
+                // If contribution fails, try to revert wallet balance
+                await supabase.from('profiles').update({ wallet_balance: currentUser.wallet_balance }).eq('id', currentUser.id);
+                throw contributionError;
+            }
             
+            // 4. Send notifications
             const notificationsToInsert = [
                 // To Admin
                 {
-                    user_id: adminUser.id,
+                    user_id: adminUser.id, 
                     message: `New contribution of ${equb.contribution_amount} ETB from ${currentUser.full_name} for "${equb.name}".`,
                 },
                 // To Member
                 {
                     user_id: currentUser.id,
-                    message: `Your contribution for "${equb.name}" has been submitted for admin verification.`,
+                    message: `Your contribution for "${equb.name}" has been submitted for admin verification. ${equb.contribution_amount} ETB has been deducted from your wallet.`,
                 }
             ];
             const { error: notificationError } = await supabase.from('notifications').insert(notificationsToInsert);
             if(notificationError) console.error("Failed to send contribution notifications:", notificationError);
             
+            // Refresh current user's profile to update wallet balance in UI
+            await refreshProfiles(); 
+
             setShowContributionModal(false);
+            showToast('Your contribution has been made and is pending admin verification!', 'success');
             setShowContributionSuccess(true);
         } catch (error: any) {
             console.error("Error making contribution:", error);
-            alert(`Failed to make contribution: ${error.message}`);
+            setShowContributionModal(false); 
+            showToast(`Failed to make contribution: ${error.message || 'An unknown error occurred.'}`, 'error');
         } finally {
             setLoading(false);
         }
@@ -755,6 +835,7 @@ const TermsModal: React.FC<{onAgree: () => void, onCancel: () => void, loading: 
                 <div className="text-sm text-light-text-secondary dark:text-dark-text-secondary space-y-2 max-h-60 overflow-y-auto pr-2">
                     <p>By joining this Equb, you agree to make timely contributions based on the specified cycle.</p>
                     <p>Failure to contribute on time may result in penalties as determined by the administrator.</p>
+                    <p>The winning order is determined by the administrator and is final. A member cannot win twice until all other members have had their turn.</p>
                     <p>The winning order is determined by the administrator and is final. A member cannot win twice until all other members have had their turn.</p>
                     <p>Withdrawal from an active Equb cycle may not be possible or may incur penalties. Please communicate with the administrator for any issues.</p>
                 </div>
